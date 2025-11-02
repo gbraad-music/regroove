@@ -94,6 +94,13 @@ typedef enum {
     ACTION_SYSEX_PLAY,             // Send play command (needs device_id in parameters)
     ACTION_SYSEX_STOP,             // Send stop command (needs device_id in parameters)
     ACTION_SYSEX_MUTE_CHANNEL,     // Send channel mute (param = channel, needs device_id in parameters)
+    // MMC (MIDI Machine Control) commands - industry standard transport control
+    ACTION_MMC_PLAY,               // Send MMC Play command (device_id in parameters)
+    ACTION_MMC_STOP,               // Send MMC Stop command (device_id in parameters)
+    ACTION_MMC_PAUSE,              // Send MMC Pause command (device_id in parameters)
+    ACTION_MMC_RECORD_START,       // Send MMC Record Strobe (device_id in parameters)
+    ACTION_MMC_RECORD_STOP,        // Send MMC Record Exit (device_id in parameters)
+    ACTION_MMC_LOCATE,             // Send MMC Locate (device_id;order;row;loop_mode in parameters)
     ACTION_MAX
 } InputAction;
 

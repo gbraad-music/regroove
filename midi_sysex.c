@@ -1,4 +1,4 @@
-#include "sysex.h"
+#include "midi_sysex.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -182,19 +182,53 @@ size_t sysex_build_channel_volume(uint8_t target_device_id, uint8_t channel, uin
     return 7;
 }
 
-size_t sysex_build_set_position(uint8_t target_device_id, uint16_t position,
-                                 uint8_t *buffer, size_t buffer_size) {
+size_t sysex_build_jump_to_order_row(uint8_t target_device_id, uint8_t order, uint8_t row,
+                                      uint8_t *buffer, size_t buffer_size) {
     if (!buffer || buffer_size < 7) return 0;
 
     buffer[0] = SYSEX_START;
     buffer[1] = SYSEX_MANUFACTURER_ID;
     buffer[2] = target_device_id & 0x7F;
-    buffer[3] = SYSEX_CMD_SET_POSITION;
-    buffer[4] = position & 0x7F;        // LSB
-    buffer[5] = (position >> 7) & 0x7F; // MSB
+    buffer[3] = SYSEX_CMD_JUMP_TO_ORDER_ROW;
+    buffer[4] = order & 0x7F;  // Order (0-127, but tracker supports 0-255)
+    buffer[5] = row & 0x7F;    // Row (0-127, but tracker supports 0-255)
     buffer[6] = SYSEX_END;
 
     return 7;
+}
+
+size_t sysex_build_jump_to_pattern_row(uint8_t target_device_id, uint8_t pattern, uint8_t row,
+                                        uint8_t *buffer, size_t buffer_size) {
+    if (!buffer || buffer_size < 7) return 0;
+
+    buffer[0] = SYSEX_START;
+    buffer[1] = SYSEX_MANUFACTURER_ID;
+    buffer[2] = target_device_id & 0x7F;
+    buffer[3] = SYSEX_CMD_JUMP_TO_PATTERN_ROW;
+    buffer[4] = pattern & 0x7F;  // Pattern (0-127, but tracker supports 0-255)
+    buffer[5] = row & 0x7F;      // Row (0-127, but tracker supports 0-255)
+    buffer[6] = SYSEX_END;
+
+    return 7;
+}
+
+size_t sysex_build_set_loop_range(uint8_t target_device_id,
+                                   uint8_t start_order, uint8_t start_row,
+                                   uint8_t end_order, uint8_t end_row,
+                                   uint8_t *buffer, size_t buffer_size) {
+    if (!buffer || buffer_size < 9) return 0;
+
+    buffer[0] = SYSEX_START;
+    buffer[1] = SYSEX_MANUFACTURER_ID;
+    buffer[2] = target_device_id & 0x7F;
+    buffer[3] = SYSEX_CMD_SET_LOOP_RANGE;
+    buffer[4] = start_order & 0x7F;
+    buffer[5] = start_row & 0x7F;
+    buffer[6] = end_order & 0x7F;
+    buffer[7] = end_row & 0x7F;
+    buffer[8] = SYSEX_END;
+
+    return 9;
 }
 
 size_t sysex_build_set_bpm(uint8_t target_device_id, uint16_t bpm,
@@ -204,12 +238,82 @@ size_t sysex_build_set_bpm(uint8_t target_device_id, uint16_t bpm,
     buffer[0] = SYSEX_START;
     buffer[1] = SYSEX_MANUFACTURER_ID;
     buffer[2] = target_device_id & 0x7F;
-    buffer[3] = SYSEX_CMD_SET_BPM;
+    buffer[3] = SYSEX_CMD_SET_TEMPO;
     buffer[4] = bpm & 0x7F;        // LSB
     buffer[5] = (bpm >> 7) & 0x7F; // MSB
     buffer[6] = SYSEX_END;
 
     return 7;
+}
+
+size_t sysex_build_set_loop_current(uint8_t target_device_id, uint8_t enable,
+                                     uint8_t *buffer, size_t buffer_size) {
+    if (!buffer || buffer_size < 6) return 0;
+
+    buffer[0] = SYSEX_START;
+    buffer[1] = SYSEX_MANUFACTURER_ID;
+    buffer[2] = target_device_id & 0x7F;
+    buffer[3] = SYSEX_CMD_SET_LOOP_CURRENT;
+    buffer[4] = enable ? 1 : 0;
+    buffer[5] = SYSEX_END;
+
+    return 6;
+}
+
+size_t sysex_build_set_loop_order(uint8_t target_device_id, uint8_t order_number,
+                                   uint8_t *buffer, size_t buffer_size) {
+    if (!buffer || buffer_size < 6) return 0;
+
+    buffer[0] = SYSEX_START;
+    buffer[1] = SYSEX_MANUFACTURER_ID;
+    buffer[2] = target_device_id & 0x7F;
+    buffer[3] = SYSEX_CMD_SET_LOOP_ORDER;
+    buffer[4] = order_number & 0x7F;
+    buffer[5] = SYSEX_END;
+
+    return 6;
+}
+
+size_t sysex_build_set_loop_pattern(uint8_t target_device_id, uint8_t pattern_number,
+                                     uint8_t *buffer, size_t buffer_size) {
+    if (!buffer || buffer_size < 6) return 0;
+
+    buffer[0] = SYSEX_START;
+    buffer[1] = SYSEX_MANUFACTURER_ID;
+    buffer[2] = target_device_id & 0x7F;
+    buffer[3] = SYSEX_CMD_SET_LOOP_PATTERN;
+    buffer[4] = pattern_number & 0x7F;
+    buffer[5] = SYSEX_END;
+
+    return 6;
+}
+
+size_t sysex_build_trigger_phrase(uint8_t target_device_id, uint8_t phrase_index,
+                                   uint8_t *buffer, size_t buffer_size) {
+    if (!buffer || buffer_size < 6) return 0;
+
+    buffer[0] = SYSEX_START;
+    buffer[1] = SYSEX_MANUFACTURER_ID;
+    buffer[2] = target_device_id & 0x7F;
+    buffer[3] = SYSEX_CMD_TRIGGER_PHRASE;
+    buffer[4] = phrase_index & 0x7F;
+    buffer[5] = SYSEX_END;
+
+    return 6;
+}
+
+size_t sysex_build_trigger_loop(uint8_t target_device_id, uint8_t loop_index,
+                                 uint8_t *buffer, size_t buffer_size) {
+    if (!buffer || buffer_size < 6) return 0;
+
+    buffer[0] = SYSEX_START;
+    buffer[1] = SYSEX_MANUFACTURER_ID;
+    buffer[2] = target_device_id & 0x7F;
+    buffer[3] = SYSEX_CMD_TRIGGER_LOOP;
+    buffer[4] = loop_index & 0x7F;
+    buffer[5] = SYSEX_END;
+
+    return 6;
 }
 
 size_t sysex_build_trigger_pad(uint8_t target_device_id, uint8_t pad_index,
@@ -235,12 +339,19 @@ const char* sysex_command_name(SysExCommand cmd) {
         case SYSEX_CMD_PLAY:           return "PLAY";
         case SYSEX_CMD_STOP:           return "STOP";
         case SYSEX_CMD_PAUSE:          return "PAUSE";
-        case SYSEX_CMD_CHANNEL_MUTE:   return "CHANNEL_MUTE";
-        case SYSEX_CMD_CHANNEL_SOLO:   return "CHANNEL_SOLO";
-        case SYSEX_CMD_CHANNEL_VOLUME: return "CHANNEL_VOLUME";
-        case SYSEX_CMD_SET_POSITION:   return "SET_POSITION";
-        case SYSEX_CMD_SET_BPM:        return "SET_BPM";
-        case SYSEX_CMD_TRIGGER_PAD:    return "TRIGGER_PAD";
+        case SYSEX_CMD_CHANNEL_MUTE:        return "CHANNEL_MUTE";
+        case SYSEX_CMD_CHANNEL_SOLO:        return "CHANNEL_SOLO";
+        case SYSEX_CMD_CHANNEL_VOLUME:      return "CHANNEL_VOLUME";
+        case SYSEX_CMD_JUMP_TO_ORDER_ROW:   return "JUMP_TO_ORDER_ROW";
+        case SYSEX_CMD_JUMP_TO_PATTERN_ROW: return "JUMP_TO_PATTERN_ROW";
+        case SYSEX_CMD_SET_LOOP_RANGE:      return "SET_LOOP_RANGE";
+        case SYSEX_CMD_SET_TEMPO:         return "SET_TEMPO";
+        case SYSEX_CMD_SET_LOOP_CURRENT:  return "SET_LOOP_CURRENT";
+        case SYSEX_CMD_SET_LOOP_ORDER:    return "SET_LOOP_ORDER";
+        case SYSEX_CMD_SET_LOOP_PATTERN:  return "SET_LOOP_PATTERN";
+        case SYSEX_CMD_TRIGGER_PHRASE:    return "TRIGGER_PHRASE";
+        case SYSEX_CMD_TRIGGER_LOOP:      return "TRIGGER_LOOP";
+        case SYSEX_CMD_TRIGGER_PAD:       return "TRIGGER_PAD";
         default:                       return "UNKNOWN";
     }
 }

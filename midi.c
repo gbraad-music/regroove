@@ -1,5 +1,6 @@
 #include "midi.h"
-#include "sysex.h"
+#include "midi_sysex.h"
+#include "midi_mmc.h"
 #ifndef _WIN32
 #include <unistd.h>
 #include <sys/time.h>
@@ -138,6 +139,11 @@ static void handle_midi_event(int device_id, double dt, const unsigned char *msg
 
     // Handle SysEx messages (0xF0 ... 0xF7)
     if (sz >= 5 && msg[0] == 0xF0) {
+        // Try to parse as MMC (MIDI Machine Control) message
+        if (mmc_parse_message(msg, sz)) {
+            // Message was handled by MMC subsystem
+            return;
+        }
         // Try to parse as Regroove SysEx message
         if (sysex_parse_message(msg, sz)) {
             // Message was handled by SysEx subsystem

@@ -35,9 +35,18 @@ typedef enum {
     SYSEX_CMD_CHANNEL_MUTE      = 0x30,  // Mute/unmute channel
     SYSEX_CMD_CHANNEL_SOLO      = 0x31,  // Solo/unsolo channel
     SYSEX_CMD_CHANNEL_VOLUME    = 0x32,  // Set channel volume
-    SYSEX_CMD_SET_POSITION      = 0x40,  // Jump to position
-    SYSEX_CMD_SET_BPM           = 0x41,  // Set tempo
-    SYSEX_CMD_TRIGGER_PAD       = 0x50,  // Trigger a pad action
+    // Position/playback control
+    SYSEX_CMD_JUMP_TO_ORDER_ROW   = 0x40,  // Jump to order + row (immediate)
+    SYSEX_CMD_JUMP_TO_PATTERN_ROW = 0x46,  // Jump to pattern + row (immediate)
+    SYSEX_CMD_SET_LOOP_RANGE      = 0x41,  // Set loop: start_order, start_row, end_order, end_row
+    SYSEX_CMD_SET_TEMPO           = 0x42,  // Set playback tempo (pitch multiplier)
+    SYSEX_CMD_SET_LOOP_CURRENT  = 0x43,  // Loop current pattern (1=enable, 0=disable)
+    SYSEX_CMD_SET_LOOP_ORDER    = 0x44,  // Loop specific order number
+    SYSEX_CMD_SET_LOOP_PATTERN  = 0x45,  // Loop specific pattern number
+    // Performance triggers
+    SYSEX_CMD_TRIGGER_PHRASE    = 0x50,  // Trigger phrase by index
+    SYSEX_CMD_TRIGGER_LOOP      = 0x51,  // Trigger saved loop range by index
+    SYSEX_CMD_TRIGGER_PAD       = 0x52,  // Trigger application/song pad by index
 } SysExCommand;
 
 // SysEx message callback
@@ -102,15 +111,56 @@ size_t sysex_build_channel_solo(uint8_t target_device_id, uint8_t channel, uint8
 size_t sysex_build_channel_volume(uint8_t target_device_id, uint8_t channel, uint8_t volume,
                                    uint8_t *buffer, size_t buffer_size);
 
-// Build SET_POSITION message
-// position: position in rows (16-bit value, sent as two 7-bit bytes)
-size_t sysex_build_set_position(uint8_t target_device_id, uint16_t position,
-                                 uint8_t *buffer, size_t buffer_size);
+// Build JUMP_TO_ORDER_ROW message
+// order: pattern order number (0-255)
+// row: row within pattern (0-255)
+size_t sysex_build_jump_to_order_row(uint8_t target_device_id, uint8_t order, uint8_t row,
+                                      uint8_t *buffer, size_t buffer_size);
 
-// Build SET_BPM message
+// Build JUMP_TO_PATTERN_ROW message
+// pattern: pattern number (0-255)
+// row: row within pattern (0-255)
+size_t sysex_build_jump_to_pattern_row(uint8_t target_device_id, uint8_t pattern, uint8_t row,
+                                        uint8_t *buffer, size_t buffer_size);
+
+// Build SET_LOOP_RANGE message
+// Sets the loop range for playback
+// start_order, start_row: loop start position
+// end_order, end_row: loop end position
+size_t sysex_build_set_loop_range(uint8_t target_device_id,
+                                   uint8_t start_order, uint8_t start_row,
+                                   uint8_t end_order, uint8_t end_row,
+                                   uint8_t *buffer, size_t buffer_size);
+
+// Build SET_TEMPO message (sets playback speed/pitch)
 // bpm: tempo in BPM (16-bit value, sent as two 7-bit bytes)
 size_t sysex_build_set_bpm(uint8_t target_device_id, uint16_t bpm,
                            uint8_t *buffer, size_t buffer_size);
+
+// Build SET_LOOP_CURRENT message
+// enable: 1=enable loop on current pattern, 0=disable loop
+size_t sysex_build_set_loop_current(uint8_t target_device_id, uint8_t enable,
+                                     uint8_t *buffer, size_t buffer_size);
+
+// Build SET_LOOP_ORDER message
+// order_number: order index to loop (0-255)
+size_t sysex_build_set_loop_order(uint8_t target_device_id, uint8_t order_number,
+                                   uint8_t *buffer, size_t buffer_size);
+
+// Build SET_LOOP_PATTERN message
+// pattern_number: pattern index to loop (0-255)
+size_t sysex_build_set_loop_pattern(uint8_t target_device_id, uint8_t pattern_number,
+                                     uint8_t *buffer, size_t buffer_size);
+
+// Build TRIGGER_PHRASE message
+// phrase_index: phrase index to trigger (0-255)
+size_t sysex_build_trigger_phrase(uint8_t target_device_id, uint8_t phrase_index,
+                                   uint8_t *buffer, size_t buffer_size);
+
+// Build TRIGGER_LOOP message
+// loop_index: saved loop range index (0-255)
+size_t sysex_build_trigger_loop(uint8_t target_device_id, uint8_t loop_index,
+                                 uint8_t *buffer, size_t buffer_size);
 
 // Build TRIGGER_PAD message
 // pad_index: pad number (0-31)

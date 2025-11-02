@@ -15,7 +15,8 @@ extern "C" {
 #include "regroove_common.h"
 #include "midi.h"
 #include "midi_output.h"
-#include "sysex.h"
+#include "midi_sysex.h"
+#include "midi_mmc.h"
 #include "lcd.h"
 #include "regroove_effects.h"
 #include "audio_input.h"
@@ -717,6 +718,66 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
 
         default:
             printf("[SysEx] Unhandled command: %d\n", command);
+            break;
+    }
+}
+
+// MMC callback handler for incoming commands
+static void mmc_command_callback(uint8_t device_id, MMCCommand command,
+                                  const uint8_t *data, size_t data_len, void *userdata) {
+    (void)userdata;  // Unused
+
+    printf("[MMC] Received command from device %d: 0x%02X (data_len=%zu)\n",
+           device_id, command, data_len);
+
+    InputEvent event;
+    event.parameter = 0;
+    event.value = 0;
+
+    switch (command) {
+        case MMC_CMD_PLAY: {
+            printf("[MMC] PLAY command received\n");
+            if (!playing) {
+                event.action = ACTION_PLAY;
+                handle_input_event(&event, false);
+            }
+            break;
+        }
+
+        case MMC_CMD_STOP: {
+            printf("[MMC] STOP command received\n");
+            if (playing) {
+                event.action = ACTION_STOP;
+                handle_input_event(&event, false);
+            }
+            break;
+        }
+
+        case MMC_CMD_PAUSE: {
+            printf("[MMC] PAUSE command received\n");
+            event.action = ACTION_PLAY_PAUSE;
+            handle_input_event(&event, false);
+            break;
+        }
+
+        case MMC_CMD_LOCATE: {
+            if (data_len >= 6) {
+                // MMC LOCATE format: <info_field_len> <type> <hr> <mn> <sc> <fr> <sf>
+                uint8_t info_type = data[1];
+                uint8_t order = data[2];  // HH = Order
+                uint8_t row = data[3];    // MM = Row
+                printf("[MMC] LOCATE: type=%d, order=%d, row=%d\n", info_type, order, row);
+
+                // Use the same code path as SYSEX_CMD_JUMP_TO_ORDER_ROW
+                if (common_state && common_state->player) {
+                    regroove_jump_to_position(common_state->player, order, row);
+                }
+            }
+            break;
+        }
+
+        default:
+            printf("[MMC] Unhandled command: 0x%02X\n", command);
             break;
     }
 }
@@ -8938,6 +8999,11 @@ int main(int argc, char* argv[]) {
     sysex_init(common_state->device_config.sysex_device_id);
     sysex_register_callback(sysex_command_callback, NULL);
     printf("SysEx initialized with device ID: %d\n", common_state->device_config.sysex_device_id);
+
+    // Initialize MMC system with device ID from config
+    mmc_init(common_state->device_config.sysex_device_id);
+    mmc_register_callback(mmc_command_callback, NULL);
+    printf("MMC initialized with device ID: %d\n", common_state->device_config.sysex_device_id);
 
     // Apply loaded audio device setting to UI variable
     selected_audio_device = common_state->device_config.audio_device;
