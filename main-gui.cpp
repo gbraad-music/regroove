@@ -74,6 +74,18 @@ static int held_note_pad_index = -1;  // -1 = no pad held
 static int held_note_midi_note = -1;   // The actual MIDI note being held
 static int held_note_midi_channel = -1; // The actual MIDI channel being used
 
+// For hold-to-gate mute behavior (trigger pads)
+static int held_mute_pad_index = -1;   // -1 = no mute pad held
+static int held_mute_channel = -1;     // The channel being held-muted
+static bool held_mute_was_muted = false; // Original mute state before hold
+static double held_mute_press_time = 0.0; // Time when mute button was pressed
+#define MUTE_HOLD_THRESHOLD 0.2 // Seconds to distinguish tap from hold
+
+// For hold-to-gate mute behavior (mixer M buttons)
+static int held_mixer_mute_channel = -1;     // -1 = no mixer mute held
+static bool held_mixer_mute_was_muted = false; // Original mute state before hold
+static double held_mixer_mute_press_time = 0.0; // Time when mixer mute was pressed
+
 // Visual feedback for SPP send activity (blink when sending)
 static float spp_send_fade = 0.0f;
 
@@ -3529,14 +3541,53 @@ static void ShowMainUI() {
                 muteCol = is_currently_muted ? ImVec4(0.90f,0.16f,0.18f,1.0f) : ImVec4(0.26f,0.27f,0.30f,1.0f);
             }
             ImGui::PushStyleColor(ImGuiCol_Button, muteCol);
-            if (ImGui::Button((std::string("M##mute")+std::to_string(i)).c_str(), ImVec2(sliderW, MUTE_SIZE))) {
-                if (learn_mode_active) start_learn_for_action(ACTION_CHANNEL_MUTE, i);
-                else if (ImGui::IsKeyDown(ImGuiKey_LeftShift) || ImGui::IsKeyDown(ImGuiKey_RightShift)) {
+            ImGui::Button((std::string("M##mute")+std::to_string(i)).c_str(), ImVec2(sliderW, MUTE_SIZE));
+
+            bool is_active = ImGui::IsItemActive();
+            bool just_clicked = ImGui::IsItemActivated();
+            bool just_released = ImGui::IsItemDeactivated();
+            bool was_held = (held_mixer_mute_channel == i);
+
+            // Handle button press
+            if (just_clicked && !learn_mode_active) {
+                // Store current state for hold-to-gate behavior
+                if (common_state && common_state->player) {
+                    held_mixer_mute_channel = i;
+                    held_mixer_mute_was_muted = regroove_is_channel_muted(common_state->player, i);
+                    held_mixer_mute_press_time = ImGui::GetTime();
+                }
+
+                // Execute the mute action immediately
+                if (ImGui::IsKeyDown(ImGuiKey_LeftShift) || ImGui::IsKeyDown(ImGuiKey_RightShift)) {
                     dispatch_action(ACT_QUEUE_MUTE_CHANNEL, i);
                 } else {
                     dispatch_action(ACT_MUTE_CHANNEL, i);
                 }
+            } else if (just_clicked && learn_mode_active) {
+                start_learn_for_action(ACTION_CHANNEL_MUTE, i);
             }
+
+            // Handle button release (hold-to-gate)
+            if (just_released && !learn_mode_active && was_held) {
+                if (common_state && common_state->player) {
+                    double release_time = ImGui::GetTime();
+                    double hold_duration = release_time - held_mixer_mute_press_time;
+
+                    if (hold_duration >= MUTE_HOLD_THRESHOLD) {
+                        // It was a HOLD (gate) - restore the original state
+                        dispatch_action(ACT_MUTE_CHANNEL, i, 0.0f, false);
+                        // printf("MIXER MUTE RELEASE (gate, held %.2fs): channel %d restored to %s\n",
+                        //        hold_duration, i, held_mixer_mute_was_muted ? "MUTED" : "UNMUTED");
+                    } else {
+                        // It was a quick TAP - leave the toggled state as-is
+                        // printf("MIXER MUTE RELEASE (tap, held %.2fs): channel %d stays in toggled state\n",
+                        //        hold_duration, i);
+                    }
+                }
+                // Clear held state
+                held_mixer_mute_channel = -1;
+            }
+
             ImGui::PopStyleColor();
 
             ImGui::EndGroup();
@@ -3958,7 +4009,7 @@ static void ShowMainUI() {
                 bool is_active = ImGui::IsItemActive();
                 bool just_clicked = ImGui::IsItemClicked();
                 int global_pad_idx = is_song_pad ? (MAX_TRIGGER_PADS + pad_idx) : pad_idx;
-                bool was_held = (held_note_pad_index == global_pad_idx);
+                bool was_held = (held_note_pad_index == global_pad_idx) || (held_mute_pad_index == global_pad_idx);
 
                 // Overlay red rectangle when button is actively pressed
                 if (is_active && pad && pad->action == ACTION_TRIGGER_NOTE_PAD) {
@@ -3989,6 +4040,17 @@ static void ShowMainUI() {
 
                         // Only execute action if it wasn't a cancel operation
                         if (!cancelled) {
+                            // For CHANNEL_MUTE actions, store current state for hold-to-gate behavior
+                            if (pad->action == ACTION_CHANNEL_MUTE && common_state && common_state->player) {
+                                int ch = atoi(pad->parameters);
+                                if (ch >= 0 && ch < common_state->num_channels) {
+                                    held_mute_pad_index = global_pad_idx;
+                                    held_mute_channel = ch;
+                                    held_mute_was_muted = regroove_is_channel_muted(common_state->player, ch);
+                                    held_mute_press_time = ImGui::GetTime();
+                                }
+                            }
+
                             // Execute the configured action for this pad
                             InputEvent event;
                             event.action = pad->action;
@@ -4008,6 +4070,26 @@ static void ShowMainUI() {
                     event.value = 0; // Note-off
                     printf("UI calling handle_input_event with parameter=%d, value=0\n", event.parameter);
                     handle_input_event(&event);
+                } else if (!is_active && was_held && !learn_mode_active && held_mute_pad_index == global_pad_idx) {
+                    // MUTE button just released - restore previous mute state if it was a hold (gate)
+                    if (common_state && common_state->player && common_state->player && held_mute_channel >= 0 && held_mute_channel < common_state->num_channels) {
+                        double release_time = ImGui::GetTime();
+                        double hold_duration = release_time - held_mute_press_time;
+
+                        if (hold_duration >= MUTE_HOLD_THRESHOLD) {
+                            // It was a HOLD (gate) - restore the original state
+                            dispatch_action(ACT_MUTE_CHANNEL, held_mute_channel, 0.0f, false);
+                            // printf("MUTE RELEASE (gate, held %.2fs): channel %d restored to %s\n",
+                            //        hold_duration, held_mute_channel, held_mute_was_muted ? "MUTED" : "UNMUTED");
+                        } else {
+                            // It was a quick TAP - leave the toggled state as-is
+                            // printf("MUTE RELEASE (tap, held %.2fs): channel %d stays in toggled state\n",
+                            //        hold_duration, held_mute_channel);
+                        }
+                    }
+                    // Clear held state
+                    held_mute_pad_index = -1;
+                    held_mute_channel = -1;
                 }
 
                 ImGui::PopStyleColor(3);
