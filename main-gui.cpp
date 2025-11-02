@@ -566,19 +566,6 @@ static int load_module(const char *path) {
         midi_output_set_metadata(common_state->metadata);
     }
 
-    // Auto-switch to PERF mode if performance events were loaded, otherwise VOL mode
-    if (common_state && common_state->performance) {
-        int event_count = regroove_performance_get_event_count(common_state->performance);
-        if (event_count > 0) {
-            ui_mode = UI_MODE_PERF;
-            printf("Auto-switched to PERF mode (%d events loaded)\n", event_count);
-        } else {
-            ui_mode = UI_MODE_VOLUME;  // Reset to default mode when no performance
-        }
-    } else {
-        ui_mode = UI_MODE_VOLUME;  // Reset to default mode
-    }
-
     return 0;
 }
 
