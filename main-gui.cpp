@@ -766,11 +766,26 @@ static void mmc_command_callback(uint8_t device_id, MMCCommand command,
                 uint8_t info_type = data[1];
                 uint8_t order = data[2];  // HH = Order
                 uint8_t row = data[3];    // MM = Row
-                printf("[MMC] LOCATE: type=%d, order=%d, row=%d\n", info_type, order, row);
+                // Loop mode is encoded in the type field: 0x01=target, 0x04=loop_start
+                uint8_t loop_mode = (info_type == 0x04) ? 1 : 0;
+                printf("[MMC] LOCATE: type=%d, order=%d, row=%d, loop_mode=%d\n", info_type, order, row, loop_mode);
 
                 // Use the same code path as SYSEX_CMD_JUMP_TO_ORDER_ROW
                 if (common_state && common_state->player) {
-                    regroove_jump_to_position(common_state->player, order, row);
+                    regroove_jump_to_order(common_state->player, order);
+                    regroove_set_position_row(common_state->player, row);
+                    
+                    // Set loop mode based on loop_mode parameter
+                    // 0 = no change, 1 = loop current pattern, 2 = loop order, 3 = loop full song
+                    if (loop_mode == 1) {
+                        // Enable pattern looping
+                        InputEvent loop_event;
+                        loop_event.action = ACTION_PATTERN_MODE_TOGGLE;
+                        loop_event.parameter = 0;
+                        loop_event.value = 0;
+                        handle_input_event(&loop_event, false);
+                        printf("[MMC] Toggled pattern loop mode\n");
+                    }
                 }
             }
             break;
@@ -1113,7 +1128,8 @@ static void execute_action(InputAction action, int parameter, float value, void*
 static inline bool action_requires_pad_index(InputAction action) {
     return (action == ACTION_TRIGGER_NOTE_PAD ||
             action == ACTION_FILE_LOAD_BYNAME ||
-            action == ACTION_SYSEX_LOAD_FILE);
+            action == ACTION_SYSEX_LOAD_FILE ||
+            action == ACTION_MMC_LOCATE);
 }
 
 // Wrapper for phrase callback (converts int value to float)
@@ -1845,6 +1861,95 @@ static void execute_action(InputAction action, int parameter, float value, void*
             }
             break;
         }
+        case ACTION_MMC_PLAY: {
+            unsigned char buffer[16];
+            uint8_t target_device = (parameter >= 0) ? parameter : 0x7F;  // Default to broadcast
+            size_t len = mmc_build_play(target_device, buffer, sizeof(buffer));
+            if (len > 0) {
+                midi_output_send_sysex(buffer, len);
+                printf("MMC PLAY sent to device %d\n", target_device);
+            }
+            break;
+        }
+        case ACTION_MMC_STOP: {
+            unsigned char buffer[16];
+            uint8_t target_device = (parameter >= 0) ? parameter : 0x7F;  // Default to broadcast
+            size_t len = mmc_build_stop(target_device, buffer, sizeof(buffer));
+            if (len > 0) {
+                midi_output_send_sysex(buffer, len);
+                printf("MMC STOP sent to device %d\n", target_device);
+            }
+            break;
+        }
+        case ACTION_MMC_PAUSE: {
+            unsigned char buffer[16];
+            uint8_t target_device = (parameter >= 0) ? parameter : 0x7F;  // Default to broadcast
+            size_t len = mmc_build_pause(target_device, buffer, sizeof(buffer));
+            if (len > 0) {
+                midi_output_send_sysex(buffer, len);
+                printf("MMC PAUSE sent to device %d\n", target_device);
+            }
+            break;
+        }
+        case ACTION_MMC_RECORD_START: {
+            unsigned char buffer[16];
+            uint8_t target_device = (parameter >= 0) ? parameter : 0x7F;  // Default to broadcast
+            size_t len = mmc_build_record_start(target_device, buffer, sizeof(buffer));
+            if (len > 0) {
+                midi_output_send_sysex(buffer, len);
+                printf("MMC RECORD_START sent to device %d\n", target_device);
+            }
+            break;
+        }
+        case ACTION_MMC_RECORD_STOP: {
+            unsigned char buffer[16];
+            uint8_t target_device = (parameter >= 0) ? parameter : 0x7F;  // Default to broadcast
+            size_t len = mmc_build_record_stop(target_device, buffer, sizeof(buffer));
+            if (len > 0) {
+                midi_output_send_sysex(buffer, len);
+                printf("MMC RECORD_STOP sent to device %d\n", target_device);
+            }
+            break;
+        }
+        case ACTION_MMC_LOCATE: {
+            // MMC_LOCATE needs device_id;order;row;loop_mode from pad parameters
+            // parameter = pad index (0-31), look up the pad to get full parameters string
+            unsigned char buffer[32];
+            uint8_t target_device = 0x7F, order = 0, row = 0, loop_mode = 0;
+
+            // Look up the pad to get the full parameters string
+            TriggerPadConfig *pad = NULL;
+            if (parameter >= 0 && parameter < MAX_TRIGGER_PADS) {
+                // Application pad
+                if (common_state && common_state->input_mappings) {
+                    pad = &common_state->input_mappings->trigger_pads[parameter];
+                }
+            } else if (parameter >= MAX_TRIGGER_PADS && parameter < MAX_TRIGGER_PADS + MAX_SONG_TRIGGER_PADS) {
+                // Song pad
+                int song_pad_idx = parameter - MAX_TRIGGER_PADS;
+                if (common_state && common_state->metadata) {
+                    pad = &common_state->metadata->song_trigger_pads[song_pad_idx];
+                }
+            }
+
+            // Parse parameters: "device_id;order;row;loop_mode"
+            if (pad && pad->parameters[0] != '\0') {
+                int dev, ord, rw, loop;
+                if (sscanf(pad->parameters, "%d;%d;%d;%d", &dev, &ord, &rw, &loop) >= 1) {
+                    target_device = dev & 0x7F;
+                    order = (ord >= 0 && ord <= 255) ? ord : 0;
+                    row = (rw >= 0 && rw <= 255) ? rw : 0;
+                    loop_mode = (loop >= 0 && loop <= 3) ? loop : 0;
+                }
+            }
+
+            size_t len = mmc_build_locate(target_device, order, row, loop_mode, buffer, sizeof(buffer));
+            if (len > 0) {
+                midi_output_send_sysex(buffer, len);
+                printf("MMC LOCATE sent to device %d, order=%d, row=%d, loop=%d\n", target_device, order, row, loop_mode);
+            }
+            break;
+        }
         default:
             break;
     }
@@ -2441,12 +2546,60 @@ static void format_pad_action_text(InputAction action, int parameter, char *line
                 snprintf(line1, line1_size, "SYSEX\nLOAD");
             }
             break;
-        case ACTION_SYSEX_PLAY: snprintf(line1, line1_size, "SysEx\nPLAY"); break;
-        case ACTION_SYSEX_STOP: snprintf(line1, line1_size, "SysEx\nSTOP"); break;
+        case ACTION_SYSEX_PLAY:
+            snprintf(line1, line1_size, "SysEx\nPLAY");
+            if (parameter >= 0) snprintf(line2, line2_size, "DEV:%d", parameter);
+            break;
+        case ACTION_SYSEX_STOP:
+            snprintf(line1, line1_size, "SysEx\nSTOP");
+            if (parameter >= 0) snprintf(line2, line2_size, "DEV:%d", parameter);
+            break;
         case ACTION_SYSEX_MUTE_CHANNEL:
             snprintf(line1, line1_size, "SysEx");
             snprintf(line2, line2_size, "MUTE %d", parameter);
             break;
+        case ACTION_MMC_PLAY:
+            snprintf(line1, line1_size, "MMC\nPLAY");
+            if (parameter >= 0) snprintf(line2, line2_size, "DEV:%d", parameter);
+            break;
+        case ACTION_MMC_STOP:
+            snprintf(line1, line1_size, "MMC\nSTOP");
+            if (parameter >= 0) snprintf(line2, line2_size, "DEV:%d", parameter);
+            break;
+        case ACTION_MMC_PAUSE:
+            snprintf(line1, line1_size, "MMC\nPAUSE");
+            if (parameter >= 0) snprintf(line2, line2_size, "DEV:%d", parameter);
+            break;
+        case ACTION_MMC_RECORD_START:
+            snprintf(line1, line1_size, "MMC\nREC+");
+            if (parameter >= 0) snprintf(line2, line2_size, "DEV:%d", parameter);
+            break;
+        case ACTION_MMC_RECORD_STOP:
+            snprintf(line1, line1_size, "MMC\nREC-");
+            if (parameter >= 0) snprintf(line2, line2_size, "DEV:%d", parameter);
+            break;
+        case ACTION_MMC_LOCATE: {
+            // For MMC_LOCATE, parameter is pad index - need to look up the pad to get order/row
+            TriggerPadConfig *locate_pad = (TriggerPadConfig*)pad;
+            if (locate_pad && locate_pad->parameters[0] != '\0') {
+                int dev = 0, order = 0, row = 0, loop = 0;
+                int parsed = sscanf(locate_pad->parameters, "%d;%d;%d;%d", &dev, &order, &row, &loop);
+                if (parsed >= 3) {
+                    if (loop == 1) {
+                        snprintf(line1, line1_size, "LOC[L]\nO%d:R%d", order, row);
+                    } else {
+                        snprintf(line1, line1_size, "LOCATE\nO%d:R%d", order, row);
+                    }
+                    snprintf(line2, line2_size, "DEV:%d", dev);
+                } else {
+                    snprintf(line1, line1_size, "MMC\nLOCATE");
+                    snprintf(line2, line2_size, "DEV:%d", dev);
+                }
+            } else {
+                snprintf(line1, line1_size, "MMC\nLOCATE");
+            }
+            break;
+        }
         default:
             snprintf(line1, line1_size, "???");
             break;
@@ -6851,6 +7004,71 @@ static void ShowMainUI() {
                         snprintf(pad->parameters, sizeof(pad->parameters), "%d;%s", device_id, temp_filename);
                         save_mappings_to_config();
                     }
+                } else if (pad->action == ACTION_MMC_LOCATE) {
+                    // MMC_LOCATE needs device_id;order;row;loop_mode
+                    int device_id = 0x7F, order = 0, row = 0, loop_mode = 0;
+                    sscanf(pad->parameters, "%d;%d;%d;%d", &device_id, &order, &row, &loop_mode);
+
+                    ImGui::Text("Device:");
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(50.0f);
+                    if (ImGui::InputInt("##mmc_dev", &device_id, 0, 0)) {
+                        if (device_id < 0) device_id = 0;
+                        if (device_id > 127) device_id = 127;
+                        snprintf(pad->parameters, sizeof(pad->parameters), "%d;%d;%d;%d", device_id, order, row, loop_mode);
+                        save_mappings_to_config();
+                    }
+                    ImGui::SameLine();
+                    ImGui::Text("Order:");
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(50.0f);
+                    if (ImGui::InputInt("##mmc_ord", &order, 0, 0)) {
+                        if (order < 0) order = 0;
+                        snprintf(pad->parameters, sizeof(pad->parameters), "%d;%d;%d;%d", device_id, order, row, loop_mode);
+                        save_mappings_to_config();
+                    }
+                    ImGui::SameLine();
+                    ImGui::Text("Row:");
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(45.0f);
+                    if (ImGui::InputInt("##mmc_row", &row, 0, 0)) {
+                        if (row < 0) row = 0;
+                        snprintf(pad->parameters, sizeof(pad->parameters), "%d;%d;%d;%d", device_id, order, row, loop_mode);
+                        save_mappings_to_config();
+                    }
+                    ImGui::SameLine();
+                    ImGui::Text("Loop:");
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(45.0f);
+                    if (ImGui::InputInt("##mmc_loop", &loop_mode, 0, 0)) {
+                        if (loop_mode < 0) loop_mode = 0;
+                        snprintf(pad->parameters, sizeof(pad->parameters), "%d;%d;%d;%d", device_id, order, row, loop_mode);
+                        save_mappings_to_config();
+                    }
+                } else if (pad->action == ACTION_SYSEX_PLAY || pad->action == ACTION_SYSEX_STOP ||
+                    pad->action == ACTION_SYSEX_MUTE_CHANNEL || pad->action == ACTION_SYSEX_SOLO_CHANNEL ||
+                    pad->action == ACTION_SYSEX_VOLUME_CHANNEL ||
+                    pad->action == ACTION_MMC_PLAY || pad->action == ACTION_MMC_STOP ||
+                    pad->action == ACTION_MMC_PAUSE || pad->action == ACTION_MMC_RECORD_START ||
+                    pad->action == ACTION_MMC_RECORD_STOP) {
+                    // Device ID parameter for SysEx/MMC actions
+                    int device_id = atoi(pad->parameters);
+                    if (device_id == 0 && pad->parameters[0] == '\0') device_id = 0x7F; // Default to broadcast
+
+                    ImGui::Text("Device:");
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(60.0f);
+                    int old_dev = device_id;
+                    if (ImGui::InputInt("##device_id", &device_id, 0, 0)) {
+                        if (device_id < 0) device_id = 0;
+                        if (device_id > 127) device_id = 127;
+                    }
+                    if (old_dev != device_id) {
+                        snprintf(pad->parameters, sizeof(pad->parameters), "%d", device_id);
+                        save_mappings_to_config();
+                    }
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(0x7F=bcast)");
                 } else if (pad->action == ACTION_CHANNEL_MUTE || pad->action == ACTION_CHANNEL_SOLO ||
                     pad->action == ACTION_QUEUE_CHANNEL_MUTE || pad->action == ACTION_QUEUE_CHANNEL_SOLO ||
                     pad->action == ACTION_CHANNEL_VOLUME || pad->action == ACTION_TRIGGER_PAD ||
@@ -6859,28 +7077,20 @@ static void ShowMainUI() {
                     pad->action == ACTION_TRIGGER_PHRASE || pad->action == ACTION_TRIGGER_LOOP ||
                     pad->action == ACTION_PLAY_TO_LOOP) {
 
-                    // For these actions, parameters is just a single integer
+                    // For these actions, parameters is just a single integer (channel or index)
                     int param = atoi(pad->parameters);
 
-                    if (ImGui::Button("-", ImVec2(30.0f, 0.0f))) {
-                        if (param > 0) {
-                            param--;
-                            snprintf(pad->parameters, sizeof(pad->parameters), "%d", param);
-                            save_mappings_to_config();
-                        }
-                    }
+                    const char* label = (pad->action == ACTION_CHANNEL_MUTE || pad->action == ACTION_CHANNEL_SOLO ||
+                                         pad->action == ACTION_QUEUE_CHANNEL_MUTE || pad->action == ACTION_QUEUE_CHANNEL_SOLO ||
+                                         pad->action == ACTION_CHANNEL_VOLUME) ? "Channel:" : "Index:";
+                    ImGui::Text("%s", label);
                     ImGui::SameLine();
                     ImGui::SetNextItemWidth(60.0f);
                     int old_param = param;
-                    ImGui::InputInt("##param", &param, 0, 0);
-                    if (param < 0) param = 0;
-                    if (old_param != param) {
-                        snprintf(pad->parameters, sizeof(pad->parameters), "%d", param);
-                        save_mappings_to_config();
+                    if (ImGui::InputInt("##param", &param, 0, 0)) {
+                        if (param < 0) param = 0;
                     }
-                    ImGui::SameLine();
-                    if (ImGui::Button("+", ImVec2(30.0f, 0.0f))) {
-                        param++;
+                    if (old_param != param) {
                         snprintf(pad->parameters, sizeof(pad->parameters), "%d", param);
                         save_mappings_to_config();
                     }
@@ -7029,8 +7239,72 @@ static void ShowMainUI() {
                     if (ImGui::IsItemDeactivatedAfterEdit()) {
                         song_pads_changed = true;
                     }
-                } else
-                if (pad->action == ACTION_CHANNEL_MUTE || pad->action == ACTION_CHANNEL_SOLO ||
+                } else if (pad->action == ACTION_MMC_LOCATE) {
+                    // MMC_LOCATE needs device_id;order;row;loop_mode
+                    int device_id = 0x7F, order = 0, row = 0, loop_mode = 0;
+                    sscanf(pad->parameters, "%d;%d;%d;%d", &device_id, &order, &row, &loop_mode);
+
+                    ImGui::Text("Device:");
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(50.0f);
+                    if (ImGui::InputInt("##mmc_dev", &device_id, 0, 0)) {
+                        if (device_id < 0) device_id = 0;
+                        if (device_id > 127) device_id = 127;
+                        snprintf(pad->parameters, sizeof(pad->parameters), "%d;%d;%d;%d", device_id, order, row, loop_mode);
+                        song_pads_changed = true;
+                    }
+                    ImGui::SameLine();
+                    ImGui::Text("Order:");
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(50.0f);
+                    if (ImGui::InputInt("##mmc_ord", &order, 0, 0)) {
+                        if (order < 0) order = 0;
+                        snprintf(pad->parameters, sizeof(pad->parameters), "%d;%d;%d;%d", device_id, order, row, loop_mode);
+                        song_pads_changed = true;
+                    }
+                    ImGui::SameLine();
+                    ImGui::Text("Row:");
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(45.0f);
+                    if (ImGui::InputInt("##mmc_row", &row, 0, 0)) {
+                        if (row < 0) row = 0;
+                        snprintf(pad->parameters, sizeof(pad->parameters), "%d;%d;%d;%d", device_id, order, row, loop_mode);
+                        song_pads_changed = true;
+                    }
+                    ImGui::SameLine();
+                    ImGui::Text("Loop:");
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(45.0f);
+                    if (ImGui::InputInt("##mmc_loop", &loop_mode, 0, 0)) {
+                        if (loop_mode < 0) loop_mode = 0;
+                        snprintf(pad->parameters, sizeof(pad->parameters), "%d;%d;%d;%d", device_id, order, row, loop_mode);
+                        song_pads_changed = true;
+                    }
+                } else if (pad->action == ACTION_SYSEX_PLAY || pad->action == ACTION_SYSEX_STOP ||
+                    pad->action == ACTION_SYSEX_MUTE_CHANNEL || pad->action == ACTION_SYSEX_SOLO_CHANNEL ||
+                    pad->action == ACTION_SYSEX_VOLUME_CHANNEL ||
+                    pad->action == ACTION_MMC_PLAY || pad->action == ACTION_MMC_STOP ||
+                    pad->action == ACTION_MMC_PAUSE || pad->action == ACTION_MMC_RECORD_START ||
+                    pad->action == ACTION_MMC_RECORD_STOP) {
+                    // Device ID parameter for SysEx/MMC actions
+                    int device_id = atoi(pad->parameters);
+                    if (device_id == 0 && pad->parameters[0] == '\0') device_id = 0x7F; // Default to broadcast
+
+                    ImGui::Text("Device:");
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(60.0f);
+                    int old_dev = device_id;
+                    if (ImGui::InputInt("##device_id", &device_id, 0, 0)) {
+                        if (device_id < 0) device_id = 0;
+                        if (device_id > 127) device_id = 127;
+                    }
+                    if (old_dev != device_id) {
+                        snprintf(pad->parameters, sizeof(pad->parameters), "%d", device_id);
+                        song_pads_changed = true;
+                    }
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(0x7F=bcast)");
+                } else if (pad->action == ACTION_CHANNEL_MUTE || pad->action == ACTION_CHANNEL_SOLO ||
                     pad->action == ACTION_QUEUE_CHANNEL_MUTE || pad->action == ACTION_QUEUE_CHANNEL_SOLO ||
                     pad->action == ACTION_CHANNEL_VOLUME || pad->action == ACTION_TRIGGER_PAD ||
                     pad->action == ACTION_JUMP_TO_ORDER || pad->action == ACTION_JUMP_TO_PATTERN ||
@@ -7038,28 +7312,20 @@ static void ShowMainUI() {
                     pad->action == ACTION_TRIGGER_PHRASE || pad->action == ACTION_TRIGGER_LOOP ||
                     pad->action == ACTION_PLAY_TO_LOOP) {
 
-                    // For these actions, parameters is just a single integer
+                    // For these actions, parameters is just a single integer (channel or index)
                     int param = atoi(pad->parameters);
 
-                    if (ImGui::Button("-", ImVec2(30.0f, 0.0f))) {
-                        if (param > 0) {
-                            param--;
-                            snprintf(pad->parameters, sizeof(pad->parameters), "%d", param);
-                            song_pads_changed = true;
-                        }
-                    }
+                    const char* label = (pad->action == ACTION_CHANNEL_MUTE || pad->action == ACTION_CHANNEL_SOLO ||
+                                         pad->action == ACTION_QUEUE_CHANNEL_MUTE || pad->action == ACTION_QUEUE_CHANNEL_SOLO ||
+                                         pad->action == ACTION_CHANNEL_VOLUME) ? "Channel:" : "Index:";
+                    ImGui::Text("%s", label);
                     ImGui::SameLine();
                     ImGui::SetNextItemWidth(60.0f);
                     int old_param = param;
-                    ImGui::InputInt("##param", &param, 0, 0);
-                    if (param < 0) param = 0;
-                    if (old_param != param) {
-                        snprintf(pad->parameters, sizeof(pad->parameters), "%d", param);
-                        song_pads_changed = true;
+                    if (ImGui::InputInt("##param", &param, 0, 0)) {
+                        if (param < 0) param = 0;
                     }
-                    ImGui::SameLine();
-                    if (ImGui::Button("+", ImVec2(30.0f, 0.0f))) {
-                        param++;
+                    if (old_param != param) {
                         snprintf(pad->parameters, sizeof(pad->parameters), "%d", param);
                         song_pads_changed = true;
                     }

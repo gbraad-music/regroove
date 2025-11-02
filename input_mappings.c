@@ -94,6 +94,14 @@ InputAction parse_action(const char *str) {
     if (strcmp(str, "sysex_play") == 0) return ACTION_SYSEX_PLAY;
     if (strcmp(str, "sysex_stop") == 0) return ACTION_SYSEX_STOP;
     if (strcmp(str, "sysex_mute_channel") == 0) return ACTION_SYSEX_MUTE_CHANNEL;
+    if (strcmp(str, "sysex_solo_channel") == 0) return ACTION_SYSEX_SOLO_CHANNEL;
+    if (strcmp(str, "sysex_volume_channel") == 0) return ACTION_SYSEX_VOLUME_CHANNEL;
+    if (strcmp(str, "mmc_play") == 0) return ACTION_MMC_PLAY;
+    if (strcmp(str, "mmc_stop") == 0) return ACTION_MMC_STOP;
+    if (strcmp(str, "mmc_pause") == 0) return ACTION_MMC_PAUSE;
+    if (strcmp(str, "mmc_record_start") == 0) return ACTION_MMC_RECORD_START;
+    if (strcmp(str, "mmc_record_stop") == 0) return ACTION_MMC_RECORD_STOP;
+    if (strcmp(str, "mmc_locate") == 0) return ACTION_MMC_LOCATE;
     return ACTION_NONE;
 }
 
@@ -180,6 +188,14 @@ const char* input_action_name(InputAction action) {
         case ACTION_SYSEX_PLAY: return "sysex_play";
         case ACTION_SYSEX_STOP: return "sysex_stop";
         case ACTION_SYSEX_MUTE_CHANNEL: return "sysex_mute_channel";
+        case ACTION_SYSEX_SOLO_CHANNEL: return "sysex_solo_channel";
+        case ACTION_SYSEX_VOLUME_CHANNEL: return "sysex_volume_channel";
+        case ACTION_MMC_PLAY: return "mmc_play";
+        case ACTION_MMC_STOP: return "mmc_stop";
+        case ACTION_MMC_PAUSE: return "mmc_pause";
+        case ACTION_MMC_RECORD_START: return "mmc_record_start";
+        case ACTION_MMC_RECORD_STOP: return "mmc_record_stop";
+        case ACTION_MMC_LOCATE: return "mmc_locate";
         default: return "none";
     }
 }

@@ -91,9 +91,11 @@ typedef enum {
     ACTION_MIDI_SEND_SPP,          // send MIDI Song Position Pointer
     // SysEx inter-instance commands
     ACTION_SYSEX_LOAD_FILE,        // Load file on remote instance (param = file index, needs device_id in parameters)
-    ACTION_SYSEX_PLAY,             // Send play command (needs device_id in parameters)
-    ACTION_SYSEX_STOP,             // Send stop command (needs device_id in parameters)
+    ACTION_SYSEX_PLAY,             // Send play command (param = device_id)
+    ACTION_SYSEX_STOP,             // Send stop command (param = device_id)
     ACTION_SYSEX_MUTE_CHANNEL,     // Send channel mute (param = channel, needs device_id in parameters)
+    ACTION_SYSEX_SOLO_CHANNEL,     // Send channel solo (param = channel, needs device_id in parameters)
+    ACTION_SYSEX_VOLUME_CHANNEL,   // Send channel volume (param = channel, needs device_id+volume in parameters)
     // MMC (MIDI Machine Control) commands - industry standard transport control
     ACTION_MMC_PLAY,               // Send MMC Play command (device_id in parameters)
     ACTION_MMC_STOP,               // Send MMC Stop command (device_id in parameters)
