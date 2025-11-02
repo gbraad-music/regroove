@@ -1718,20 +1718,33 @@ static void execute_action(InputAction action, int parameter, float value, void*
             if (common_state) {
                 common_state->device_config.midi_clock_master = !common_state->device_config.midi_clock_master;
                 printf("MIDI Clock send %s\n", common_state->device_config.midi_clock_master ? "ENABLED" : "DISABLED");
+                regroove_common_save_device_config(common_state, current_config_file);
             }
             break;
         case ACTION_MIDI_TRANSPORT_SEND_TOGGLE:
             if (common_state) {
                 common_state->device_config.midi_clock_send_transport = !common_state->device_config.midi_clock_send_transport;
                 printf("MIDI Transport send %s\n", common_state->device_config.midi_clock_send_transport ? "ENABLED" : "DISABLED");
+                regroove_common_save_device_config(common_state, current_config_file);
             }
             break;
         case ACTION_MIDI_SPP_SEND_TOGGLE:
             if (common_state) {
-                // Toggle between modes: 0 (disabled) <-> 1 (on stop) <-> 2 (during playback)
-                common_state->device_config.midi_clock_send_spp = (common_state->device_config.midi_clock_send_spp + 1) % 3;
+                // Toggle between DISABLED (0) and DURING PLAYBACK (2) only
+                // Skip "On Stop Only" (1) as that's standard MIDI behavior, not useful for regroove
+                if (common_state->device_config.midi_clock_send_spp == 0) {
+                    common_state->device_config.midi_clock_send_spp = 2;  // Enable: DURING PLAYBACK
+                } else {
+                    common_state->device_config.midi_clock_send_spp = 0;  // Disable
+                }
+
                 const char* modes[] = {"DISABLED", "ON STOP", "DURING PLAYBACK"};
                 printf("MIDI SPP send mode: %s\n", modes[common_state->device_config.midi_clock_send_spp]);
+
+                // Update clock thread config with current interval setting
+                midi_output_set_spp_config(common_state->device_config.midi_clock_send_spp,
+                                          common_state->device_config.midi_clock_spp_interval);
+                regroove_common_save_device_config(common_state, current_config_file);
             }
             break;
         case ACTION_MIDI_SPP_SYNC_MODE_TOGGLE:
@@ -1753,12 +1766,14 @@ static void execute_action(InputAction action, int parameter, float value, void*
                 // Update clock thread config
                 midi_output_set_spp_config(common_state->device_config.midi_clock_send_spp,
                                           common_state->device_config.midi_clock_spp_interval);
+                regroove_common_save_device_config(common_state, current_config_file);
             }
             break;
         case ACTION_MIDI_SPP_RECEIVE_TOGGLE:
             if (common_state) {
                 common_state->device_config.midi_spp_receive = !common_state->device_config.midi_spp_receive;
                 printf("MIDI SPP receive %s\n", common_state->device_config.midi_spp_receive ? "ENABLED" : "DISABLED");
+                regroove_common_save_device_config(common_state, current_config_file);
             }
             break;
         case ACTION_MIDI_SEND_START:

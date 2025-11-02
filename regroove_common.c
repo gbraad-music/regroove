@@ -172,7 +172,7 @@ RegrooveCommonState* regroove_common_create(void) {
     state->device_config.midi_clock_sync_threshold = 0.5f; // 0.5% threshold (default)
     state->device_config.midi_clock_master = 0;   // Disabled (default)
     state->device_config.midi_clock_send_transport = 0; // Disabled (default)
-    state->device_config.midi_spp_speed_compensation = 1; // Enabled (default) - compensate for sender's speed
+    state->device_config.midi_spp_speed_compensation = 0; // Disabled (default) - speed-aware SPP
     state->device_config.midi_clock_send_spp = 2; // During playback (default) - regroove-to-regroove sync
     state->device_config.midi_clock_spp_interval = 64; // Every pattern (default)
     state->device_config.midi_spp_receive = 1; // Enabled (default) - respond to incoming SPP
@@ -986,8 +986,8 @@ int regroove_common_save_default_config(const char *filepath) {
     fprintf(f, "midi_clock_send_spp = 2\n");
     fprintf(f, "# MIDI SPP interval in rows when sending during playback: 64=pattern, 32, 16, 8, 4\n");
     fprintf(f, "midi_clock_spp_interval = 64\n");
-    fprintf(f, "# MIDI SPP speed compensation: 0=disabled, 1=enabled (compensates for sender speed difference)\n");
-    fprintf(f, "midi_spp_speed_compensation = 1\n");
+    fprintf(f, "# MIDI SPP speed compensation: 0=disabled (default), 1=enabled (compensates for sender speed difference)\n");
+    fprintf(f, "midi_spp_speed_compensation = 0\n");
     fprintf(f, "# MIDI SPP receive: 0=disabled (ignore incoming SPP), 1=enabled (sync to incoming SPP)\n");
     fprintf(f, "midi_spp_receive = 1\n");
     fprintf(f, "# MIDI transport control: 0=disabled, 1=respond to Start/Stop/Continue\n");
