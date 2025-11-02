@@ -21,7 +21,7 @@ RegrooveMetadata* regroove_metadata_create(void) {
     // Initialize song-specific trigger pads (S1-S16) to unmapped
     for (int i = 0; i < MAX_SONG_TRIGGER_PADS; i++) {
         meta->song_trigger_pads[i].action = ACTION_NONE;
-        meta->song_trigger_pads[i].parameter = 0;
+        meta->song_trigger_pads[i].parameters[0] = '\0';  // Empty parameters
         meta->song_trigger_pads[i].midi_note = -1;  // Not mapped
         meta->song_trigger_pads[i].midi_device = -1; // Any device
         meta->song_trigger_pads[i].phrase_index = -1; // No phrase assigned
@@ -169,7 +169,7 @@ int regroove_metadata_load(RegrooveMetadata *meta, const char *rgx_path) {
                     if (strstr(key, "_action")) {
                         meta->song_trigger_pads[pad_index].action = parse_action(value);
                     } else if (strstr(key, "_parameter")) {
-                        meta->song_trigger_pads[pad_index].parameter = atoi(value);
+                        strncpy(meta->song_trigger_pads[pad_index].parameters, value, sizeof(meta->song_trigger_pads[pad_index].parameters) - 1);
                     } else if (strstr(key, "_midi_note")) {
                         meta->song_trigger_pads[pad_index].midi_note = atoi(value);
                     } else if (strstr(key, "_midi_device")) {
@@ -339,7 +339,7 @@ int regroove_metadata_save(const RegrooveMetadata *meta, const char *rgx_path) {
             const TriggerPadConfig *pad = &meta->song_trigger_pads[i];
             if (pad->action != ACTION_NONE || pad->midi_note != -1) {
                 fprintf(f, "pad_S%d_action=%s\n", i + 1, input_action_name(pad->action));
-                fprintf(f, "pad_S%d_parameter=%d\n", i + 1, pad->parameter);
+                fprintf(f, "pad_S%d_parameter=%s\n", i + 1, pad->parameters);
                 if (pad->midi_note >= 0) {
                     fprintf(f, "pad_S%d_midi_note=%d\n", i + 1, pad->midi_note);
                     fprintf(f, "pad_S%d_midi_device=%d\n", i + 1, pad->midi_device);

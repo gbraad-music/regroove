@@ -1,4 +1,5 @@
 #ifndef INPUT_MAPPINGS_H
+#include <stddef.h>
 #define INPUT_MAPPINGS_H
 
 // Action types that can be triggered by inputs
@@ -25,6 +26,7 @@ typedef enum {
     ACTION_FILE_PREV,
     ACTION_FILE_NEXT,
     ACTION_FILE_LOAD,
+    ACTION_FILE_LOAD_BYNAME, // parameter = file index (shows specific filename on pad)
     // Parameterized actions
     ACTION_CHANNEL_MUTE,     // parameter = channel index
     ACTION_CHANNEL_SOLO,     // parameter = channel index
@@ -121,15 +123,10 @@ typedef struct {
 
 typedef struct {
     InputAction action;      // Action to trigger (ACTION_NONE if using phrase)
-    int parameter;           // Action parameter (channel index, etc.)
+    char parameters[512];    // Semicolon-separated parameters for the action (parsed based on action type)
     int midi_note;           // MIDI note number that triggers this pad (-1 = not mapped)
     int midi_device;         // Which MIDI device (-1 = any)
     int phrase_index;        // Index into phrases array (-1 = not using phrase, use action instead)
-    // For ACTION_TRIGGER_NOTE_PAD:
-    int note_output;         // MIDI note to send (0-127)
-    int note_velocity;       // MIDI velocity (0-127, default: 100)
-    int note_program;        // MIDI program change (-1 = none, 0-127 = send program change)
-    int note_channel;        // MIDI channel (-1 = omni/use default, 0-15 = specific channel)
 } TriggerPadConfig;
 
 // Input mappings configuration (application-wide from regroove.ini)
@@ -167,5 +164,12 @@ const char* input_action_name(InputAction action);
 
 // Parse action name to enum (for loading from files)
 InputAction parse_action(const char *str);
+
+// Helper functions for parsing trigger pad parameters
+// Parse ACTION_TRIGGER_NOTE_PAD parameters: "note;velocity;program;channel"
+void parse_note_pad_params(const char *params, int *note, int *velocity, int *program, int *channel);
+
+// Serialize ACTION_TRIGGER_NOTE_PAD parameters to string
+void serialize_note_pad_params(char *out, size_t out_size, int note, int velocity, int program, int channel);
 
 #endif // INPUT_MAPPINGS_H

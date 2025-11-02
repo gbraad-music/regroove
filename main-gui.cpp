@@ -1058,6 +1058,31 @@ static void execute_action(InputAction action, int parameter, float value, void*
                 load_module(path);
             }
             break;
+        case ACTION_FILE_LOAD_BYNAME:
+            // Parameter is the pad index - look up the filename from the pad config
+            if (common_state && common_state->file_list) {
+                TriggerPadConfig *pad = NULL;
+                // Determine if this is an app pad or song pad
+                if (parameter >= 0 && parameter < MAX_TRIGGER_PADS && common_state->input_mappings) {
+                    pad = &common_state->input_mappings->trigger_pads[parameter];
+                } else if (parameter >= MAX_TRIGGER_PADS && parameter < MAX_TRIGGER_PADS + MAX_SONG_TRIGGER_PADS && common_state->metadata) {
+                    int song_pad_idx = parameter - MAX_TRIGGER_PADS;
+                    pad = &common_state->metadata->song_trigger_pads[song_pad_idx];
+                }
+
+                if (pad && pad->parameters[0] != '\0') {
+                    char path[COMMON_MAX_PATH * 2];
+                    snprintf(path, sizeof(path), "%s/%s",
+                             common_state->file_list->directory,
+                             pad->parameters);
+                    printf("ACTION_FILE_LOAD_BYNAME: parameter=%d, filename='%s', path='%s'\n", parameter, pad->parameters, path);
+                    load_module(path);
+                } else {
+                    printf("ACTION_FILE_LOAD_BYNAME: pad=%p, parameters='%s' (empty or null)\n",
+                           (void*)pad, pad ? pad->parameters : "NULL");
+                }
+            }
+            break;
         case ACTION_CHANNEL_MUTE:
             dispatch_action(ACT_MUTE_CHANNEL, parameter, 0.0f, false);
             break;
@@ -1085,8 +1110,8 @@ static void execute_action(InputAction action, int parameter, float value, void*
                     if (pad->action != ACTION_NONE) {
                         InputEvent pad_event;
                         pad_event.action = pad->action;
-                        // For ACTION_TRIGGER_NOTE_PAD, pass the pad index, not pad->parameter
-                        pad_event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD) ? parameter : pad->parameter;
+                        // For ACTION_TRIGGER_NOTE_PAD and ACTION_FILE_LOAD_BYNAME, pass the pad index, not atoi(pad->parameters)
+                        pad_event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD || pad->action == ACTION_FILE_LOAD_BYNAME) ? parameter : atoi(pad->parameters);
                         pad_event.value = (int)value;
                         handle_input_event(&pad_event, false);  // from_playback=false
                     }
@@ -1102,8 +1127,8 @@ static void execute_action(InputAction action, int parameter, float value, void*
                     if (pad->action != ACTION_NONE) {
                         InputEvent pad_event;
                         pad_event.action = pad->action;
-                        // For ACTION_TRIGGER_NOTE_PAD, pass the pad index, not pad->parameter
-                        pad_event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD) ? parameter : pad->parameter;
+                        // For ACTION_TRIGGER_NOTE_PAD and ACTION_FILE_LOAD_BYNAME, pass the pad index, not atoi(pad->parameters)
+                        pad_event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD || pad->action == ACTION_FILE_LOAD_BYNAME) ? parameter : atoi(pad->parameters);
                         pad_event.value = (int)value;
                         handle_input_event(&pad_event, false);  // from_playback=false
                     }
@@ -1120,13 +1145,16 @@ static void execute_action(InputAction action, int parameter, float value, void*
 
                     if (value > 0) {
                         // Pad pressed - send note-on
-                        int note = pad->note_output;
-                        int velocity = (pad->note_velocity > 0) ? pad->note_velocity : 100;
-                        int channel = (pad->note_channel >= 0 && pad->note_channel <= 15) ? pad->note_channel : 0;
+                        // Parse parameters: "note;velocity;program;channel"
+                        int note, velocity, program, channel;
+                        parse_note_pad_params(pad->parameters, &note, &velocity, &program, &channel);
+
+                        // Use default channel if omni
+                        if (channel < 0 || channel > 15) channel = 0;
 
                         // Send program change if specified (1-based, 0 = use current/any)
-                        if (pad->note_program >= 1 && pad->note_program <= 128) {
-                            midi_output_program_change(channel, pad->note_program - 1); // Convert to 0-based
+                        if (program >= 1 && program <= 128) {
+                            midi_output_program_change(channel, program - 1); // Convert to 0-based
                         }
 
                         // Send note-on
@@ -1159,13 +1187,16 @@ static void execute_action(InputAction action, int parameter, float value, void*
 
                     if (value > 0) {
                         // Pad pressed - send note-on
-                        int note = pad->note_output;
-                        int velocity = (pad->note_velocity > 0) ? pad->note_velocity : 100;
-                        int channel = (pad->note_channel >= 0 && pad->note_channel <= 15) ? pad->note_channel : 0;
+                        // Parse parameters: "note;velocity;program;channel"
+                        int note, velocity, program, channel;
+                        parse_note_pad_params(pad->parameters, &note, &velocity, &program, &channel);
+
+                        // Use default channel if omni
+                        if (channel < 0 || channel > 15) channel = 0;
 
                         // Send program change if specified (1-based, 0 = use current/any)
-                        if (pad->note_program >= 1 && pad->note_program <= 128) {
-                            midi_output_program_change(channel, pad->note_program - 1); // Convert to 0-based
+                        if (program >= 1 && program <= 128) {
+                            midi_output_program_change(channel, program - 1); // Convert to 0-based
                         }
 
                         // Send note-on
@@ -1926,7 +1957,25 @@ static void format_pad_action_text(InputAction action, int parameter, char *line
         case ACTION_QUIT: snprintf(line1, line1_size, "QUIT"); break;
         case ACTION_FILE_PREV: snprintf(line1, line1_size, "FILE\nPREV"); break;
         case ACTION_FILE_NEXT: snprintf(line1, line1_size, "FILE\nNEXT"); break;
-        case ACTION_FILE_LOAD: snprintf(line1, line1_size, "FILE\nLOAD"); break;
+        case ACTION_FILE_LOAD:
+            snprintf(line1, line1_size, "LOAD");
+            // Show currently selected filename
+            if (common_state && common_state->file_list && common_state->file_list->count > 0) {
+                const char* filename = common_state->file_list->filenames[common_state->file_list->current_index];
+                snprintf(line2, line2_size, "%s", filename);
+            } else {
+                snprintf(line2, line2_size, "[browse]");
+            }
+            break;
+        case ACTION_FILE_LOAD_BYNAME:
+            snprintf(line1, line1_size, "LOAD");
+            // Show specific filename from pad config
+            if (pad && pad->parameters[0] != '\0') {
+                snprintf(line2, line2_size, "%s", pad->parameters);
+            } else {
+                snprintf(line2, line2_size, "[no file]");
+            }
+            break;
         case ACTION_CHANNEL_MUTE:
             snprintf(line1, line1_size, "MUTE");
             // Use custom channel name if available
@@ -1982,23 +2031,27 @@ static void format_pad_action_text(InputAction action, int parameter, char *line
             break;
         case ACTION_TRIGGER_NOTE_PAD:
             if (pad) {
+                // Parse parameters: "note;velocity;program;channel"
+                int note, velocity, program, channel;
+                parse_note_pad_params(pad->parameters, &note, &velocity, &program, &channel);
+
                 // Show note name/number on line 1
                 const char *note_names[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
-                int octave = (pad->note_output / 12) - 1;
-                int note_idx = pad->note_output % 12;
+                int octave = (note / 12) - 1;
+                int note_idx = note % 12;
                 snprintf(line1, line1_size, "Note %s%d", note_names[note_idx], octave);
 
                 // Show program/channel info on line 2
-                if (pad->note_program >= 1) {  // 1-128 = program, 0 = current/any
-                    if (pad->note_channel >= 0) {
-                        snprintf(line2, line2_size, "P%d CH%d", pad->note_program, pad->note_channel + 1);
+                if (program >= 1) {  // 1-128 = program, 0 = current/any
+                    if (channel >= 0) {
+                        snprintf(line2, line2_size, "P%d CH%d", program, channel + 1);
                     } else {
-                        snprintf(line2, line2_size, "PGM %d", pad->note_program);
+                        snprintf(line2, line2_size, "PGM %d", program);
                     }
-                } else if (pad->note_channel >= 0) {
-                    snprintf(line2, line2_size, "CH %d", pad->note_channel + 1);
+                } else if (channel >= 0) {
+                    snprintf(line2, line2_size, "CH %d", channel + 1);
                 } else {
-                    snprintf(line2, line2_size, "V%d", pad->note_velocity > 0 ? pad->note_velocity : 100);
+                    snprintf(line2, line2_size, "V%d", velocity);
                 }
             } else {
                 snprintf(line1, line1_size, "NOTE");
@@ -2463,8 +2516,8 @@ void my_midi_mapping(unsigned char status, unsigned char cc_or_note, unsigned ch
                     if (pad->action != ACTION_NONE) {
                         InputEvent event;
                         event.action = pad->action;
-                        // For ACTION_TRIGGER_NOTE_PAD, pass the pad index, not pad->parameter
-                        event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD) ? i : pad->parameter;
+                        // For ACTION_TRIGGER_NOTE_PAD, pass the pad index, not atoi(pad->parameters)
+                        event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD || pad->action == ACTION_FILE_LOAD_BYNAME) ? i : atoi(pad->parameters);
                         event.value = value;
                         handle_input_event(&event, false);
                     }
@@ -2493,8 +2546,8 @@ void my_midi_mapping(unsigned char status, unsigned char cc_or_note, unsigned ch
                     if (pad->action != ACTION_NONE) {
                         InputEvent event;
                         event.action = pad->action;
-                        // For ACTION_TRIGGER_NOTE_PAD, pass the global pad index, not pad->parameter
-                        event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD) ? global_idx : pad->parameter;
+                        // For ACTION_TRIGGER_NOTE_PAD, pass the global pad index, not atoi(pad->parameters)
+                        event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD || pad->action == ACTION_FILE_LOAD_BYNAME) ? global_idx : atoi(pad->parameters);
                         event.value = value;
                         handle_input_event(&event, false);
                     }
@@ -3506,7 +3559,7 @@ static void ShowMainUI() {
                     for (int i = 0; i < MAX_TRIGGER_PADS; i++) {
                         TriggerPadConfig *pad = &common_state->input_mappings->trigger_pads[i];
                         if ((pad->action == ACTION_QUEUE_CHANNEL_MUTE || pad->action == ACTION_QUEUE_CHANNEL_SOLO) &&
-                            pad->parameter == ch) {
+                            atoi(pad->parameters) == ch) {
                             trigger_pad_transition_fade[i] = 1.0f; // Red blink
                         }
                     }
@@ -3530,13 +3583,13 @@ static void ShowMainUI() {
                         should_blink = true;
                     } else if (prev_queued_jump_type == 3 && pad->action == ACTION_QUEUE_ORDER) {
                         // Check if this pad's parameter matches the queued order
-                        if (pad->parameter == prev_queued_order) {
+                        if (atoi(pad->parameters) == prev_queued_order) {
                             should_blink = true;
                         }
                     } else if (prev_queued_jump_type == 4 && pad->action == ACTION_QUEUE_PATTERN) {
                         // Check if this pad's parameter matches the queued pattern
                         int prev_queued_pattern = regroove_get_order_pattern(player, prev_queued_order);
-                        if (pad->parameter == prev_queued_pattern) {
+                        if (atoi(pad->parameters) == prev_queued_pattern) {
                             should_blink = true;
                         }
                     }
@@ -3642,7 +3695,7 @@ static void ShowMainUI() {
                 // Check if this pad has a pending queued action
                 bool has_pending = false;
                 if (player && pad) {
-                    int ch = pad->parameter;
+                    int ch = atoi(pad->parameters);
                     int queued_jump = regroove_get_queued_jump_type(player);
 
                     // Check for queued mute/solo actions
@@ -3663,14 +3716,14 @@ static void ShowMainUI() {
                     } else if (pad->action == ACTION_QUEUE_ORDER && queued_jump == 3) {
                         // Check if this specific order matches the queued order
                         int queued_order = regroove_get_queued_order(player);
-                        if (pad->parameter == queued_order) {
+                        if (atoi(pad->parameters) == queued_order) {
                             has_pending = true;
                         }
                     } else if (pad->action == ACTION_QUEUE_PATTERN && queued_jump == 4) {
                         // Check if this specific pattern matches the queued pattern
                         int queued_order = regroove_get_queued_order(player);
                         int queued_pattern = regroove_get_order_pattern(player, queued_order);
-                        if (pad->parameter == queued_pattern) {
+                        if (atoi(pad->parameters) == queued_pattern) {
                             has_pending = true;
                         }
                     }
@@ -3686,7 +3739,7 @@ static void ShowMainUI() {
                 // Check if pad controls a channel's mute state
                 bool is_channel_muted = false;
                 if (player && pad) {
-                    int ch = pad->parameter;
+                    int ch = atoi(pad->parameters);
                     if (ch >= 0 && ch < common_state->num_channels) {
                         if (pad->action == ACTION_CHANNEL_MUTE || pad->action == ACTION_QUEUE_CHANNEL_MUTE ||
                             pad->action == ACTION_CHANNEL_SOLO || pad->action == ACTION_QUEUE_CHANNEL_SOLO) {
@@ -3857,7 +3910,7 @@ static void ShowMainUI() {
 
                 // Add channel activity highlighting if this pad controls a channel
                 if (pad && common_state) {
-                    int ch = pad->parameter;
+                    int ch = atoi(pad->parameters);
                     if (ch >= 0 && ch < common_state->num_channels &&
                         (pad->action == ACTION_CHANNEL_MUTE || pad->action == ACTION_CHANNEL_SOLO ||
                          pad->action == ACTION_QUEUE_CHANNEL_MUTE || pad->action == ACTION_QUEUE_CHANNEL_SOLO ||
@@ -3881,7 +3934,7 @@ static void ShowMainUI() {
 
                 // If pad has an action assigned, show action name instead of pad number
                 if (pad && pad->action != ACTION_NONE) {
-                    format_pad_action_text(pad->action, pad->parameter, action_line1, sizeof(action_line1),
+                    format_pad_action_text(pad->action, atoi(pad->parameters), action_line1, sizeof(action_line1),
                                           action_line2, sizeof(action_line2),
                                           player, common_state ? common_state->metadata : NULL, pad);
                     if (action_line2[0] != '\0') {
@@ -3932,16 +3985,16 @@ static void ShowMainUI() {
                         trigger_pad_fade[fade_idx] = 1.0f;
 
                         // Try to cancel pending action first
-                        bool cancelled = try_cancel_pending_action(pad->action, pad->parameter);
+                        bool cancelled = try_cancel_pending_action(pad->action, atoi(pad->parameters));
 
                         // Only execute action if it wasn't a cancel operation
                         if (!cancelled) {
                             // Execute the configured action for this pad
                             InputEvent event;
                             event.action = pad->action;
-                            // For ACTION_TRIGGER_NOTE_PAD, pass the pad index, not pad->parameter
-                            event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD) ?
-                                             (is_song_pad ? (MAX_TRIGGER_PADS + pad_idx) : pad_idx) : pad->parameter;
+                            // For ACTION_TRIGGER_NOTE_PAD and ACTION_FILE_LOAD_BYNAME, pass the pad index, not atoi(pad->parameters)
+                            event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD || pad->action == ACTION_FILE_LOAD_BYNAME) ?
+                                             (is_song_pad ? (MAX_TRIGGER_PADS + pad_idx) : pad_idx) : atoi(pad->parameters);
                             event.value = 127; // Full value for trigger pads (note-on)
                             handle_input_event(&event);
                         }
@@ -4015,7 +4068,7 @@ static void ShowMainUI() {
                         int global_idx = MAX_TRIGGER_PADS + i;
                         TriggerPadConfig *pad = &common_state->metadata->song_trigger_pads[i];
                         if ((pad->action == ACTION_QUEUE_CHANNEL_MUTE || pad->action == ACTION_QUEUE_CHANNEL_SOLO) &&
-                            pad->parameter == ch) {
+                            atoi(pad->parameters) == ch) {
                             trigger_pad_transition_fade[global_idx] = 1.0f; // Red blink
                         }
                     }
@@ -4040,13 +4093,13 @@ static void ShowMainUI() {
                         should_blink = true;
                     } else if (prev_queued_jump_type == 3 && pad->action == ACTION_QUEUE_ORDER) {
                         // Check if this pad's parameter matches the queued order
-                        if (pad->parameter == prev_queued_order) {
+                        if (atoi(pad->parameters) == prev_queued_order) {
                             should_blink = true;
                         }
                     } else if (prev_queued_jump_type == 4 && pad->action == ACTION_QUEUE_PATTERN) {
                         // Check if this pad's parameter matches the queued pattern
                         int prev_queued_pattern = regroove_get_order_pattern(player, prev_queued_order);
-                        if (pad->parameter == prev_queued_pattern) {
+                        if (atoi(pad->parameters) == prev_queued_pattern) {
                             should_blink = true;
                         }
                     }
@@ -4094,7 +4147,7 @@ static void ShowMainUI() {
                 bool has_pending = false;
                 if (player && common_state && common_state->metadata) {
                     TriggerPadConfig *pad = &common_state->metadata->song_trigger_pads[idx];
-                    int ch = pad->parameter;
+                    int ch = atoi(pad->parameters);
                     int queued_jump = regroove_get_queued_jump_type(player);
 
                     // Check for queued mute/solo actions
@@ -4115,14 +4168,14 @@ static void ShowMainUI() {
                     } else if (pad->action == ACTION_QUEUE_ORDER && queued_jump == 3) {
                         // Check if this specific order matches the queued order
                         int queued_order = regroove_get_queued_order(player);
-                        if (pad->parameter == queued_order) {
+                        if (atoi(pad->parameters) == queued_order) {
                             has_pending = true;
                         }
                     } else if (pad->action == ACTION_QUEUE_PATTERN && queued_jump == 4) {
                         // Check if this specific pattern matches the queued pattern
                         int queued_order = regroove_get_queued_order(player);
                         int queued_pattern = regroove_get_order_pattern(player, queued_order);
-                        if (pad->parameter == queued_pattern) {
+                        if (atoi(pad->parameters) == queued_pattern) {
                             has_pending = true;
                         }
                     }
@@ -4139,7 +4192,7 @@ static void ShowMainUI() {
                 bool is_channel_muted = false;
                 if (player && common_state && common_state->metadata) {
                     TriggerPadConfig *pad = &common_state->metadata->song_trigger_pads[idx];
-                    int ch = pad->parameter;
+                    int ch = atoi(pad->parameters);
                     if (ch >= 0 && ch < common_state->num_channels) {
                         if (pad->action == ACTION_CHANNEL_MUTE || pad->action == ACTION_QUEUE_CHANNEL_MUTE ||
                             pad->action == ACTION_CHANNEL_SOLO || pad->action == ACTION_QUEUE_CHANNEL_SOLO) {
@@ -4291,7 +4344,7 @@ static void ShowMainUI() {
                 // Add channel activity highlighting if this song pad controls a channel
                 if (common_state && common_state->metadata) {
                     TriggerPadConfig *pad = &common_state->metadata->song_trigger_pads[idx];
-                    int ch = pad->parameter;
+                    int ch = atoi(pad->parameters);
                     if (ch >= 0 && ch < common_state->num_channels &&
                         (pad->action == ACTION_CHANNEL_MUTE || pad->action == ACTION_CHANNEL_SOLO ||
                          pad->action == ACTION_QUEUE_CHANNEL_MUTE || pad->action == ACTION_QUEUE_CHANNEL_SOLO ||
@@ -4343,8 +4396,8 @@ static void ShowMainUI() {
                         if (pad->action != ACTION_NONE) {
                             InputEvent event;
                             event.action = pad->action;
-                            // For ACTION_TRIGGER_NOTE_PAD, pass the global pad index, not pad->parameter
-                            event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD) ? global_idx : pad->parameter;
+                            // For ACTION_TRIGGER_NOTE_PAD, pass the global pad index, not atoi(pad->parameters)
+                            event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD || pad->action == ACTION_FILE_LOAD_BYNAME) ? global_idx : atoi(pad->parameters);
                             event.value = 127; // Full value for trigger pads
                             handle_input_event(&event);
                         }
@@ -4632,7 +4685,8 @@ static void ShowMainUI() {
             if (new_perf_action == ACTION_CHANNEL_MUTE || new_perf_action == ACTION_CHANNEL_SOLO ||
                 new_perf_action == ACTION_CHANNEL_VOLUME || new_perf_action == ACTION_TRIGGER_PAD ||
                 new_perf_action == ACTION_JUMP_TO_ORDER || new_perf_action == ACTION_JUMP_TO_PATTERN ||
-                new_perf_action == ACTION_QUEUE_ORDER || new_perf_action == ACTION_QUEUE_PATTERN) {
+                new_perf_action == ACTION_QUEUE_ORDER || new_perf_action == ACTION_QUEUE_PATTERN ||
+                new_perf_action == ACTION_FILE_LOAD_BYNAME) {
                 ImGui::Text("Parameter:");
                 ImGui::SameLine(120.0f);
                 ImGui::SetNextItemWidth(100.0f);
@@ -6277,7 +6331,7 @@ static void ShowMainUI() {
                             printf("APP Pad A%d: Changing action from %s to %s\n",
                                    i + 1, input_action_name(pad->action), input_action_name(act));
                             pad->action = act;
-                            pad->parameter = 0;
+                            pad->parameters[0] = '\0';  // Clear parameters when changing action
                             save_mappings_to_config();
                         }
                     }
@@ -6288,29 +6342,83 @@ static void ShowMainUI() {
                 // Parameter with +/- buttons (conditional based on action)
                 if (pad->action == ACTION_TRIGGER_NOTE_PAD) {
                     // Special UI for note pad: Note/Vel/Pgm/Ch
+                    // Parse current parameters
+                    int note, velocity, program, channel;
+                    parse_note_pad_params(pad->parameters, &note, &velocity, &program, &channel);
+
+                    // Note input
                     ImGui::SetNextItemWidth(40.0f);
-                    int old_note = pad->note_output;
-                    ImGui::InputInt("##note", &pad->note_output, 0, 0);
-                    if (pad->note_output < 0) pad->note_output = 0;
-                    if (pad->note_output > 127) pad->note_output = 127;
-                    if (old_note != pad->note_output) save_mappings_to_config();
+                    int old_note = note;
+                    ImGui::InputInt("##note", &note, 0, 0);
+                    if (note < 0) note = 0;
+                    if (note > 127) note = 127;
+                    if (old_note != note) {
+                        serialize_note_pad_params(pad->parameters, sizeof(pad->parameters), note, velocity, program, channel);
+                        save_mappings_to_config();
+                    }
 
+                    // Velocity input
                     ImGui::SameLine();
                     ImGui::SetNextItemWidth(35.0f);
-                    int old_vel = pad->note_velocity;
-                    ImGui::InputInt("##vel", &pad->note_velocity, 0, 0);
-                    if (pad->note_velocity < 0) pad->note_velocity = 0;
-                    if (pad->note_velocity > 127) pad->note_velocity = 127;
-                    if (old_vel != pad->note_velocity) save_mappings_to_config();
+                    int old_vel = velocity;
+                    ImGui::InputInt("##vel", &velocity, 0, 0);
+                    if (velocity < 0) velocity = 0;
+                    if (velocity > 127) velocity = 127;
+                    if (old_vel != velocity) {
+                        serialize_note_pad_params(pad->parameters, sizeof(pad->parameters), note, velocity, program, channel);
+                        save_mappings_to_config();
+                    }
 
+                    // Program input
                     ImGui::SameLine();
                     ImGui::SetNextItemWidth(35.0f);
-                    int old_pgm = pad->note_program;
-                    ImGui::InputInt("##pgm", &pad->note_program, 0, 0);
-                    if (pad->note_program < 0) pad->note_program = 0;  // 0 = use current/any
-                    if (pad->note_program > 128) pad->note_program = 128;  // 1-128 = program 0-127
-                    if (old_pgm != pad->note_program) save_mappings_to_config();
+                    int old_pgm = program;
+                    ImGui::InputInt("##pgm", &program, 0, 0);
+                    if (program < 0) program = 0;  // 0 = use current/any
+                    if (program > 128) program = 128;  // 1-128 = program 0-127
+                    if (old_pgm != program) {
+                        serialize_note_pad_params(pad->parameters, sizeof(pad->parameters), note, velocity, program, channel);
+                        save_mappings_to_config();
+                    }
 
+                    // Channel selector (in PARAMETER column, not MIDI Note column!)
+                    ImGui::SameLine();
+                    const char* ch_label = channel == -1 ? "Omni" :
+                                          (channel >= 0 && channel <= 15) ?
+                                          (std::string("Ch") + std::to_string(channel + 1)).c_str() : "Ch1";
+                    ImGui::SetNextItemWidth(60.0f);
+                    if (ImGui::BeginCombo("##notechannel", ch_label)) {
+                        if (ImGui::Selectable("Omni", channel == -1)) {
+                            channel = -1;
+                            serialize_note_pad_params(pad->parameters, sizeof(pad->parameters), note, velocity, program, channel);
+                            save_mappings_to_config();
+                        }
+                        for (int ch = 0; ch < 16; ch++) {
+                            char ch_str[16];
+                            snprintf(ch_str, sizeof(ch_str), "Ch %d", ch + 1);
+                            if (ImGui::Selectable(ch_str, channel == ch)) {
+                                channel = ch;
+                                serialize_note_pad_params(pad->parameters, sizeof(pad->parameters), note, velocity, program, channel);
+                                save_mappings_to_config();
+                            }
+                        }
+                        ImGui::EndCombo();
+                    }
+
+                } else if (pad->action == ACTION_FILE_LOAD_BYNAME) {
+                    // Filename input for FILE_LOAD_BYNAME
+                    // Parameters string contains just the filename
+                    ImGui::SetNextItemWidth(150.0f);
+                    char temp_filename[256];
+                    strncpy(temp_filename, pad->parameters, sizeof(temp_filename) - 1);
+                    temp_filename[sizeof(temp_filename) - 1] = '\0';
+                    ImGui::InputText("##filename", temp_filename, sizeof(temp_filename), ImGuiInputTextFlags_EnterReturnsTrue);
+                    // Check if user finished editing (pressed Enter or lost focus)
+                    if (ImGui::IsItemDeactivatedAfterEdit()) {
+                        strncpy(pad->parameters, temp_filename, sizeof(pad->parameters) - 1);
+                        pad->parameters[sizeof(pad->parameters) - 1] = '\0';
+                        save_mappings_to_config();
+                    }
                 } else if (pad->action == ACTION_CHANNEL_MUTE || pad->action == ACTION_CHANNEL_SOLO ||
                     pad->action == ACTION_QUEUE_CHANNEL_MUTE || pad->action == ACTION_QUEUE_CHANNEL_SOLO ||
                     pad->action == ACTION_CHANNEL_VOLUME || pad->action == ACTION_TRIGGER_PAD ||
@@ -6319,21 +6427,29 @@ static void ShowMainUI() {
                     pad->action == ACTION_TRIGGER_PHRASE || pad->action == ACTION_TRIGGER_LOOP ||
                     pad->action == ACTION_PLAY_TO_LOOP) {
 
+                    // For these actions, parameters is just a single integer
+                    int param = atoi(pad->parameters);
+
                     if (ImGui::Button("-", ImVec2(30.0f, 0.0f))) {
-                        if (pad->parameter > 0) {
-                            pad->parameter--;
+                        if (param > 0) {
+                            param--;
+                            snprintf(pad->parameters, sizeof(pad->parameters), "%d", param);
                             save_mappings_to_config();
                         }
                     }
                     ImGui::SameLine();
                     ImGui::SetNextItemWidth(60.0f);
-                    int old_param = pad->parameter;
-                    ImGui::InputInt("##param", &pad->parameter, 0, 0);
-                    if (pad->parameter < 0) pad->parameter = 0;
-                    if (old_param != pad->parameter) save_mappings_to_config();
+                    int old_param = param;
+                    ImGui::InputInt("##param", &param, 0, 0);
+                    if (param < 0) param = 0;
+                    if (old_param != param) {
+                        snprintf(pad->parameters, sizeof(pad->parameters), "%d", param);
+                        save_mappings_to_config();
+                    }
                     ImGui::SameLine();
                     if (ImGui::Button("+", ImVec2(30.0f, 0.0f))) {
-                        pad->parameter++;
+                        param++;
+                        snprintf(pad->parameters, sizeof(pad->parameters), "%d", param);
                         save_mappings_to_config();
                     }
                 } else {
@@ -6342,28 +6458,8 @@ static void ShowMainUI() {
                 ImGui::NextColumn();
 
                 // MIDI Note display (read-only, set via LEARN mode)
-                // For ACTION_TRIGGER_NOTE_PAD, use this column for MIDI Channel selection
-                if (pad->action == ACTION_TRIGGER_NOTE_PAD) {
-                    const char* ch_label = pad->note_channel == -1 ? "Omni" :
-                                           (pad->note_channel >= 0 && pad->note_channel <= 15) ?
-                                           (std::string("Ch ") + std::to_string(pad->note_channel + 1)).c_str() : "Ch 1";
-                    ImGui::SetNextItemWidth(80.0f);
-                    if (ImGui::BeginCombo("##notechannel", ch_label)) {
-                        if (ImGui::Selectable("Omni", pad->note_channel == -1)) {
-                            pad->note_channel = -1;
-                            save_mappings_to_config();
-                        }
-                        for (int ch = 0; ch < 16; ch++) {
-                            char ch_str[16];
-                            snprintf(ch_str, sizeof(ch_str), "Ch %d", ch + 1);
-                            if (ImGui::Selectable(ch_str, pad->note_channel == ch)) {
-                                pad->note_channel = ch;
-                                save_mappings_to_config();
-                            }
-                        }
-                        ImGui::EndCombo();
-                    }
-                } else if (pad->midi_note >= 0) {
+                // This shows which MIDI note TRIGGERS this pad (not the note it sends!)
+                if (pad->midi_note >= 0) {
                     ImGui::Text("Note %d", pad->midi_note);
                 } else {
                     ImGui::TextDisabled("Not set");
@@ -6487,6 +6583,21 @@ static void ShowMainUI() {
                 ImGui::NextColumn();
 
                 // Parameter with +/- buttons (conditional based on action)
+                if (pad->action == ACTION_FILE_LOAD_BYNAME) {
+                    // Filename input for FILE_LOAD_BYNAME
+                    ImGui::SetNextItemWidth(150.0f);
+                    char temp_filename[256];
+                    strncpy(temp_filename, pad->parameters, sizeof(temp_filename) - 1);
+                    temp_filename[sizeof(temp_filename) - 1] = '\0';
+                    ImGui::InputText("##filename", temp_filename, sizeof(temp_filename), ImGuiInputTextFlags_EnterReturnsTrue);
+                    // Always copy back to pad (for display updates)
+                    strncpy(pad->parameters, temp_filename, sizeof(pad->parameters) - 1);
+                    pad->parameters[sizeof(pad->parameters) - 1] = '\0';
+                    // Check if user finished editing (pressed Enter or lost focus)
+                    if (ImGui::IsItemDeactivatedAfterEdit()) {
+                        song_pads_changed = true;
+                    }
+                } else
                 if (pad->action == ACTION_CHANNEL_MUTE || pad->action == ACTION_CHANNEL_SOLO ||
                     pad->action == ACTION_QUEUE_CHANNEL_MUTE || pad->action == ACTION_QUEUE_CHANNEL_SOLO ||
                     pad->action == ACTION_CHANNEL_VOLUME || pad->action == ACTION_TRIGGER_PAD ||
@@ -6495,21 +6606,29 @@ static void ShowMainUI() {
                     pad->action == ACTION_TRIGGER_PHRASE || pad->action == ACTION_TRIGGER_LOOP ||
                     pad->action == ACTION_PLAY_TO_LOOP) {
 
+                    // For these actions, parameters is just a single integer
+                    int param = atoi(pad->parameters);
+
                     if (ImGui::Button("-", ImVec2(30.0f, 0.0f))) {
-                        if (pad->parameter > 0) {
-                            pad->parameter--;
+                        if (param > 0) {
+                            param--;
+                            snprintf(pad->parameters, sizeof(pad->parameters), "%d", param);
                             song_pads_changed = true;
                         }
                     }
                     ImGui::SameLine();
                     ImGui::SetNextItemWidth(60.0f);
-                    if (ImGui::InputInt("##param", &pad->parameter, 0, 0)) {
-                        if (pad->parameter < 0) pad->parameter = 0;
+                    int old_param = param;
+                    ImGui::InputInt("##param", &param, 0, 0);
+                    if (param < 0) param = 0;
+                    if (old_param != param) {
+                        snprintf(pad->parameters, sizeof(pad->parameters), "%d", param);
                         song_pads_changed = true;
                     }
                     ImGui::SameLine();
                     if (ImGui::Button("+", ImVec2(30.0f, 0.0f))) {
-                        pad->parameter++;
+                        param++;
+                        snprintf(pad->parameters, sizeof(pad->parameters), "%d", param);
                         song_pads_changed = true;
                     }
                 } else {
@@ -6518,28 +6637,8 @@ static void ShowMainUI() {
                 ImGui::NextColumn();
 
                 // MIDI Note display (read-only, set via LEARN mode)
-                // For ACTION_TRIGGER_NOTE_PAD, use this column for MIDI Channel selection
-                if (pad->action == ACTION_TRIGGER_NOTE_PAD) {
-                    const char* ch_label = pad->note_channel == -1 ? "Omni" :
-                                           (pad->note_channel >= 0 && pad->note_channel <= 15) ?
-                                           (std::string("Ch ") + std::to_string(pad->note_channel + 1)).c_str() : "Ch 1";
-                    ImGui::SetNextItemWidth(80.0f);
-                    if (ImGui::BeginCombo("##notechannel", ch_label)) {
-                        if (ImGui::Selectable("Omni", pad->note_channel == -1)) {
-                            pad->note_channel = -1;
-                            save_mappings_to_config();
-                        }
-                        for (int ch = 0; ch < 16; ch++) {
-                            char ch_str[16];
-                            snprintf(ch_str, sizeof(ch_str), "Ch %d", ch + 1);
-                            if (ImGui::Selectable(ch_str, pad->note_channel == ch)) {
-                                pad->note_channel = ch;
-                                save_mappings_to_config();
-                            }
-                        }
-                        ImGui::EndCombo();
-                    }
-                } else if (pad->midi_note >= 0) {
+                // This shows which MIDI note TRIGGERS this pad (not the note it sends!)
+                if (pad->midi_note >= 0) {
                     ImGui::Text("Note %d", pad->midi_note);
                 } else {
                     ImGui::TextDisabled("Not set");

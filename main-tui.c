@@ -452,7 +452,7 @@ static void execute_action(InputAction action, int parameter, float value, void*
                     if (pad->action != ACTION_NONE) {
                         InputEvent pad_event;
                         pad_event.action = pad->action;
-                        pad_event.parameter = pad->parameter;
+                        pad_event.parameter = atoi(pad->parameters);
                         pad_event.value = (int)value;
                         handle_input_event(&pad_event);
                     }
@@ -466,7 +466,7 @@ static void execute_action(InputAction action, int parameter, float value, void*
                     if (pad->action != ACTION_NONE) {
                         InputEvent pad_event;
                         pad_event.action = pad->action;
-                        pad_event.parameter = pad->parameter;
+                        pad_event.parameter = atoi(pad->parameters);
                         pad_event.value = (int)value;
                         handle_input_event(&pad_event);
                     }
@@ -664,7 +664,7 @@ void my_midi_mapping(unsigned char status, unsigned char cc_or_note, unsigned ch
                     if (pad->action != ACTION_NONE) {
                         InputEvent event;
                         event.action = pad->action;
-                        event.parameter = pad->parameter;
+                        event.parameter = atoi(pad->parameters);
                         event.value = value;
                         handle_input_event(&event);
                     }
@@ -689,7 +689,7 @@ void my_midi_mapping(unsigned char status, unsigned char cc_or_note, unsigned ch
                     if (pad->action != ACTION_NONE) {
                         InputEvent event;
                         event.action = pad->action;
-                        event.parameter = pad->parameter;
+                        event.parameter = atoi(pad->parameters);
                         event.value = value;
                         handle_input_event(&event);
                     }
