@@ -3294,7 +3294,7 @@ static void ShowMainUI() {
     }  // End if (!fullscreen_pads_mode)
 
     // CHANNEL PANEL (9 columns: 8 channels + 1 pitch)
-    // In fullscreen pads mode, use full width
+    // In fullscreen pads mode, hide channel panel and use full screen for pads
     float rightX = fullscreen_pads_mode ? 0.0f : (SIDE_MARGIN + LEFT_PANEL_WIDTH + 18.0f);
     float rightW = fullscreen_pads_mode ? fullW : (fullW - rightX - SIDE_MARGIN);
     if (rightW < 300.0f) rightW = 300.0f;
@@ -3305,13 +3305,18 @@ static void ShowMainUI() {
     float sliderW = BASE_SLIDER_W * widthScale;
     float spacing = BASE_SPACING * widthScale;
 
+    // In fullscreen pads mode, use entire window height for pads (account for sequencer at bottom)
+    float actualChannelAreaHeight = fullscreen_pads_mode ?
+        (fullH - TOP_MARGIN - GAP_ABOVE_SEQUENCER - SEQUENCER_HEIGHT - BOTTOM_MARGIN - childPaddingY - childBorderY) :
+        channelAreaHeight;
+
     ImGui::SetCursorPos(ImVec2(rightX, TOP_MARGIN));
     // Remove border in fullscreen mode so bar is flush against edge
     bool show_border = !fullscreen_pads_mode;
-    ImGui::BeginChild("channels_panel", ImVec2(rightW, channelAreaHeight), show_border, ImGuiWindowFlags_NoScrollbar);
+    ImGui::BeginChild("channels_panel", ImVec2(rightW, actualChannelAreaHeight), show_border, ImGuiWindowFlags_NoScrollbar);
 
     float labelH = ImGui::GetTextLineHeight();
-    float contentHeight = channelAreaHeight - childPaddingY;
+    float contentHeight = actualChannelAreaHeight - childPaddingY;
     float panSliderH = 20.0f;  // Height for horizontal pan slider
     float sliderTop = 8.0f + labelH + 4.0f + SOLO_SIZE + 2.0f + panSliderH + labelH + 2.0f;
     float bottomStack = 8.0f + MUTE_SIZE + 12.0f;
@@ -3586,8 +3591,15 @@ static void ShowMainUI() {
         float padW = (availWidth - padSpacing * (PADS_PER_ROW - 1)) / PADS_PER_ROW;
         float padH = (availHeight - padSpacing * (NUM_ROWS - 1)) / NUM_ROWS;
         float padSize = fminf(padW, padH);
-        if (padSize > 140.0f) padSize = 140.0f; // Max pad size
-        if (padSize < 60.0f) padSize = 60.0f;   // Min pad size
+
+        // In fullscreen mode, allow pads to fill available space
+        if (!fullscreen_pads_mode) {
+            if (padSize > 140.0f) padSize = 140.0f; // Max pad size
+            if (padSize < 60.0f) padSize = 60.0f;   // Min pad size
+        } else {
+            // In fullscreen mode, only enforce a minimum for usability
+            if (padSize < 40.0f) padSize = 40.0f;   // Min pad size for usability
+        }
 
         // Center the grid
         float gridW = PADS_PER_ROW * padSize + (PADS_PER_ROW - 1) * padSpacing;
