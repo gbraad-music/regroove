@@ -1048,6 +1048,13 @@ static void update_phrases() {
 // Forward declaration
 static void execute_action(InputAction action, int parameter, float value, void* userdata);
 
+// Helper: Check if an action requires the pad index as parameter (instead of parsing from pad->parameters)
+static inline bool action_requires_pad_index(InputAction action) {
+    return (action == ACTION_TRIGGER_NOTE_PAD ||
+            action == ACTION_FILE_LOAD_BYNAME ||
+            action == ACTION_SYSEX_LOAD_FILE);
+}
+
 // Wrapper for phrase callback (converts int value to float)
 static void phrase_action_callback(InputAction action, int parameter, int value, void* userdata) {
     execute_action(action, parameter, (float)value, userdata);
@@ -1229,8 +1236,8 @@ static void execute_action(InputAction action, int parameter, float value, void*
                     if (pad->action != ACTION_NONE) {
                         InputEvent pad_event;
                         pad_event.action = pad->action;
-                        // For ACTION_TRIGGER_NOTE_PAD, ACTION_FILE_LOAD_BYNAME, and ACTION_SYSEX_LOAD_FILE, pass the pad index, not atoi(pad->parameters)
-                        pad_event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD || pad->action == ACTION_FILE_LOAD_BYNAME || pad->action == ACTION_SYSEX_LOAD_FILE) ? parameter : atoi(pad->parameters);
+                        // For actions that need pad context, pass the pad index; otherwise parse from parameters
+                        pad_event.parameter = action_requires_pad_index(pad->action) ? parameter : atoi(pad->parameters);
                         pad_event.value = (int)value;
                         handle_input_event(&pad_event, false);  // from_playback=false
                     }
@@ -1246,8 +1253,8 @@ static void execute_action(InputAction action, int parameter, float value, void*
                     if (pad->action != ACTION_NONE) {
                         InputEvent pad_event;
                         pad_event.action = pad->action;
-                        // For ACTION_TRIGGER_NOTE_PAD, ACTION_FILE_LOAD_BYNAME, and ACTION_SYSEX_LOAD_FILE, pass the pad index, not atoi(pad->parameters)
-                        pad_event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD || pad->action == ACTION_FILE_LOAD_BYNAME || pad->action == ACTION_SYSEX_LOAD_FILE) ? parameter : atoi(pad->parameters);
+                        // For actions that need pad context, pass the pad index; otherwise parse from parameters
+                        pad_event.parameter = action_requires_pad_index(pad->action) ? parameter : atoi(pad->parameters);
                         pad_event.value = (int)value;
                         handle_input_event(&pad_event, false);  // from_playback=false
                     }
@@ -2758,8 +2765,8 @@ void my_midi_mapping(unsigned char status, unsigned char cc_or_note, unsigned ch
                     if (pad->action != ACTION_NONE) {
                         InputEvent event;
                         event.action = pad->action;
-                        // For ACTION_TRIGGER_NOTE_PAD, ACTION_FILE_LOAD_BYNAME, and ACTION_SYSEX_LOAD_FILE, pass the pad index, not atoi(pad->parameters)
-                        event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD || pad->action == ACTION_FILE_LOAD_BYNAME || pad->action == ACTION_SYSEX_LOAD_FILE) ? i : atoi(pad->parameters);
+                        // For actions that need pad context, pass the pad index; otherwise parse from parameters
+                        event.parameter = action_requires_pad_index(pad->action) ? i : atoi(pad->parameters);
                         event.value = value;
                         handle_input_event(&event, false);
                     }
@@ -2788,8 +2795,8 @@ void my_midi_mapping(unsigned char status, unsigned char cc_or_note, unsigned ch
                     if (pad->action != ACTION_NONE) {
                         InputEvent event;
                         event.action = pad->action;
-                        // For ACTION_TRIGGER_NOTE_PAD, ACTION_FILE_LOAD_BYNAME, and ACTION_SYSEX_LOAD_FILE, pass the global pad index, not atoi(pad->parameters)
-                        event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD || pad->action == ACTION_FILE_LOAD_BYNAME || pad->action == ACTION_SYSEX_LOAD_FILE) ? global_idx : atoi(pad->parameters);
+                        // For actions that need pad context, pass the global pad index; otherwise parse from parameters
+                        event.parameter = action_requires_pad_index(pad->action) ? global_idx : atoi(pad->parameters);
                         event.value = value;
                         handle_input_event(&event, false);
                     }
@@ -4284,8 +4291,8 @@ static void ShowMainUI() {
                             // Execute the configured action for this pad
                             InputEvent event;
                             event.action = pad->action;
-                            // For ACTION_TRIGGER_NOTE_PAD, ACTION_FILE_LOAD_BYNAME, and ACTION_SYSEX_LOAD_FILE, pass the pad index, not atoi(pad->parameters)
-                            event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD || pad->action == ACTION_FILE_LOAD_BYNAME || pad->action == ACTION_SYSEX_LOAD_FILE) ?
+                            // For actions that need pad context, pass the pad index; otherwise parse from parameters
+                            event.parameter = action_requires_pad_index(pad->action) ?
                                              (is_song_pad ? (MAX_TRIGGER_PADS + pad_idx) : pad_idx) : atoi(pad->parameters);
                             event.value = 127; // Full value for trigger pads (note-on)
                             handle_input_event(&event);
