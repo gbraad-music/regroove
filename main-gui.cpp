@@ -15,6 +15,7 @@ extern "C" {
 #include "regroove_common.h"
 #include "midi.h"
 #include "midi_output.h"
+#include "sysex.h"
 #include "lcd.h"
 #include "regroove_effects.h"
 #include "audio_input.h"
@@ -614,6 +615,112 @@ enum GuiAction {
     ACT_QUEUE_PATTERN
 };
 
+// SysEx callback handler for incoming commands
+static void sysex_command_callback(uint8_t device_id, SysExCommand command,
+                                    const uint8_t *data, size_t data_len, void *userdata) {
+    (void)userdata;  // Unused
+
+    printf("[SysEx] Received command from device %d: %s (data_len=%zu)\n",
+           device_id, sysex_command_name(command), data_len);
+
+    switch (command) {
+        case SYSEX_CMD_FILE_LOAD: {
+            if (data_len >= 2) {
+                uint8_t filename_len = data[0];
+                if (filename_len > 0 && data_len >= (size_t)(1 + filename_len)) {
+                    char filename[256] = {0};
+                    memcpy(filename, &data[1], filename_len);
+                    filename[filename_len] = '\0';
+                    printf("[SysEx] Loading file: %s\n", filename);
+
+                    // Construct full path and load
+                    if (common_state && common_state->file_list) {
+                        char path[1024];
+                        snprintf(path, sizeof(path), "%s/%s", common_state->file_list->directory, filename);
+                        load_module(path);
+                    }
+                }
+            }
+            break;
+        }
+
+        case SYSEX_CMD_PLAY: {
+            printf("[SysEx] PLAY command received\n");
+            if (!playing) {
+                InputEvent event;
+                event.action = ACTION_PLAY;
+                event.parameter = 0;
+                event.value = 0;
+                handle_input_event(&event, false);
+            }
+            break;
+        }
+
+        case SYSEX_CMD_STOP: {
+            printf("[SysEx] STOP command received\n");
+            if (playing) {
+                InputEvent event;
+                event.action = ACTION_STOP;
+                event.parameter = 0;
+                event.value = 0;
+                handle_input_event(&event, false);
+            }
+            break;
+        }
+
+        case SYSEX_CMD_PAUSE: {
+            printf("[SysEx] PAUSE command received\n");
+            InputEvent event;
+            event.action = ACTION_PLAY_PAUSE;
+            event.parameter = 0;
+            event.value = 0;
+            handle_input_event(&event, false);
+            break;
+        }
+
+        case SYSEX_CMD_CHANNEL_MUTE: {
+            if (data_len >= 2) {
+                uint8_t channel = data[0];
+                uint8_t mute = data[1];
+                (void)mute; // Mute is toggle action
+                printf("[SysEx] CHANNEL_MUTE: ch=%d, mute=%d\n", channel, mute);
+                if (channel < MAX_CHANNELS) {
+                    InputEvent event;
+                    event.action = ACTION_CHANNEL_MUTE;
+                    event.parameter = channel;
+                    event.value = 0;
+                    handle_input_event(&event, false);
+                }
+            }
+            break;
+        }
+
+        case SYSEX_CMD_CHANNEL_SOLO: {
+            if (data_len >= 2) {
+                uint8_t channel = data[0];
+                printf("[SysEx] CHANNEL_SOLO: ch=%d\n", channel);
+                if (channel < MAX_CHANNELS) {
+                    InputEvent event;
+                    event.action = ACTION_CHANNEL_SOLO;
+                    event.parameter = channel;
+                    event.value = 0;
+                    handle_input_event(&event, false);
+                }
+            }
+            break;
+        }
+
+        case SYSEX_CMD_PING:
+            printf("[SysEx] PING received from device %d\n", device_id);
+            // Could respond with a PING back if needed
+            break;
+
+        default:
+            printf("[SysEx] Unhandled command: %d\n", command);
+            break;
+    }
+}
+
 void dispatch_action(GuiAction act, int arg1 = -1, float arg2 = 0.0f, bool should_record = true) {
     // Record the action if requested (UI buttons pass true, handle_input_event passes false to avoid double-recording)
     if (should_record && common_state && common_state->performance) {
@@ -1122,8 +1229,8 @@ static void execute_action(InputAction action, int parameter, float value, void*
                     if (pad->action != ACTION_NONE) {
                         InputEvent pad_event;
                         pad_event.action = pad->action;
-                        // For ACTION_TRIGGER_NOTE_PAD and ACTION_FILE_LOAD_BYNAME, pass the pad index, not atoi(pad->parameters)
-                        pad_event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD || pad->action == ACTION_FILE_LOAD_BYNAME) ? parameter : atoi(pad->parameters);
+                        // For ACTION_TRIGGER_NOTE_PAD, ACTION_FILE_LOAD_BYNAME, and ACTION_SYSEX_LOAD_FILE, pass the pad index, not atoi(pad->parameters)
+                        pad_event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD || pad->action == ACTION_FILE_LOAD_BYNAME || pad->action == ACTION_SYSEX_LOAD_FILE) ? parameter : atoi(pad->parameters);
                         pad_event.value = (int)value;
                         handle_input_event(&pad_event, false);  // from_playback=false
                     }
@@ -1139,8 +1246,8 @@ static void execute_action(InputAction action, int parameter, float value, void*
                     if (pad->action != ACTION_NONE) {
                         InputEvent pad_event;
                         pad_event.action = pad->action;
-                        // For ACTION_TRIGGER_NOTE_PAD and ACTION_FILE_LOAD_BYNAME, pass the pad index, not atoi(pad->parameters)
-                        pad_event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD || pad->action == ACTION_FILE_LOAD_BYNAME) ? parameter : atoi(pad->parameters);
+                        // For ACTION_TRIGGER_NOTE_PAD, ACTION_FILE_LOAD_BYNAME, and ACTION_SYSEX_LOAD_FILE, pass the pad index, not atoi(pad->parameters)
+                        pad_event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD || pad->action == ACTION_FILE_LOAD_BYNAME || pad->action == ACTION_SYSEX_LOAD_FILE) ? parameter : atoi(pad->parameters);
                         pad_event.value = (int)value;
                         handle_input_event(&pad_event, false);  // from_playback=false
                     }
@@ -1585,6 +1692,91 @@ static void execute_action(InputAction action, int parameter, float value, void*
                 printf("MIDI SPP sent (row %d)\n", current_row);
             }
             break;
+        case ACTION_SYSEX_LOAD_FILE: {
+            printf("[DEBUG] ACTION_SYSEX_LOAD_FILE triggered, parameter=%d, value=%.0f\n", parameter, value);
+            // parameter = pad index (0-31), pad->parameters contains "device_id;filename"
+            if (common_state) {
+                TriggerPadConfig *pad = NULL;
+
+                // Determine if this is an application pad or song pad
+                if (parameter >= 0 && parameter < MAX_TRIGGER_PADS) {
+                    // Application pad (A1-A16)
+                    printf("[DEBUG] Looking up application pad %d\n", parameter);
+                    if (common_state->input_mappings) {
+                        pad = &common_state->input_mappings->trigger_pads[parameter];
+                        printf("[DEBUG] Pad found, parameters='%s'\n", pad->parameters);
+                    }
+                } else if (parameter >= MAX_TRIGGER_PADS && parameter < MAX_TRIGGER_PADS + MAX_SONG_TRIGGER_PADS) {
+                    // Song pad (S1-S16)
+                    int song_pad_idx = parameter - MAX_TRIGGER_PADS;
+                    printf("[DEBUG] Looking up song pad %d\n", song_pad_idx);
+                    if (common_state->metadata) {
+                        pad = &common_state->metadata->song_trigger_pads[song_pad_idx];
+                        printf("[DEBUG] Pad found, parameters='%s'\n", pad->parameters);
+                    }
+                }
+
+                if (pad && pad->parameters[0] != '\0') {
+                    // Parse "device_id;filename" from parameters
+                    int target_device = 0;
+                    char filename[256] = "";
+                    sscanf(pad->parameters, "%d;%255[^\n]", &target_device, filename);
+                    printf("[DEBUG] Parsed device_id=%d, filename='%s'\n", target_device, filename);
+
+                    if (filename[0] != '\0') {
+                        unsigned char buffer[512];
+                        size_t len = sysex_build_file_load((uint8_t)target_device, filename, buffer, sizeof(buffer));
+                        printf("[DEBUG] sysex_build_file_load returned len=%zu\n", len);
+                        if (len > 0) {
+                            int result = midi_output_send_sysex(buffer, len);
+                            printf("SysEx FILE_LOAD sent to device %d: %s (result=%d)\n", target_device, filename, result);
+                        } else {
+                            printf("[ERROR] sysex_build_file_load failed\n");
+                        }
+                    } else {
+                        printf("[ERROR] filename is empty after parsing\n");
+                    }
+                } else {
+                    printf("[ERROR] pad is NULL or parameters empty\n");
+                }
+            } else {
+                printf("[ERROR] common_state is NULL\n");
+            }
+            break;
+        }
+        case ACTION_SYSEX_PLAY: {
+            unsigned char buffer[16];
+            uint8_t target_device = (parameter >= 0) ? parameter : 0;
+            size_t len = sysex_build_play(target_device, buffer, sizeof(buffer));
+            if (len > 0) {
+                midi_output_send_sysex(buffer, len);
+                printf("SysEx PLAY sent to device %d\n", target_device);
+            }
+            break;
+        }
+        case ACTION_SYSEX_STOP: {
+            unsigned char buffer[16];
+            uint8_t target_device = (parameter >= 0) ? parameter : 0;
+            size_t len = sysex_build_stop(target_device, buffer, sizeof(buffer));
+            if (len > 0) {
+                midi_output_send_sysex(buffer, len);
+                printf("SysEx STOP sent to device %d\n", target_device);
+            }
+            break;
+        }
+        case ACTION_SYSEX_MUTE_CHANNEL: {
+            // Parameter is channel, need to parse device_id from somewhere
+            unsigned char buffer[16];
+            uint8_t target_device = 0;  // TODO: get from pad parameters
+            uint8_t channel = (parameter >= 0) ? parameter : 0;
+            uint8_t mute = 1;  // Toggle mute
+            size_t len = sysex_build_channel_mute(target_device, channel, mute, buffer, sizeof(buffer));
+            if (len > 0) {
+                midi_output_send_sysex(buffer, len);
+                printf("SysEx MUTE_CHANNEL sent to device %d, channel %d\n", target_device, channel);
+            }
+            break;
+        }
         default:
             break;
     }
@@ -2149,6 +2341,44 @@ static void format_pad_action_text(InputAction action, int parameter, char *line
         case ACTION_MIDI_SEND_SPP: snprintf(line1, line1_size, "TX\nSPP"); break;
         case ACTION_RECORD_TOGGLE: snprintf(line1, line1_size, "RECORD"); break;
         case ACTION_TAP_TEMPO: snprintf(line1, line1_size, "TAP\nTEMPO"); break;
+        case ACTION_SYSEX_LOAD_FILE:
+            if (pad && pad->parameters[0] != '\0') {
+                // Parse "device_id;filename" from parameters
+                int device_id = 0;
+                char filename[256] = "";
+                sscanf(pad->parameters, "%d;%255[^\n]", &device_id, filename);
+
+                // Line 1: "SYSEX" + "LOAD"
+                snprintf(line1, line1_size, "SYSEX\nLOAD");
+
+                // Line 2: filename + device ID
+                // Extract just filename (remove path if present)
+                const char *basename = strrchr(filename, '/');
+                if (!basename) basename = strrchr(filename, '\\');
+                const char *short_name = basename ? basename + 1 : filename;
+
+                // Truncate filename if too long and add device ID
+                char truncated[32];
+                if (strlen(short_name) > 14) {
+                    strncpy(truncated, short_name, 11);
+                    truncated[11] = '.';
+                    truncated[12] = '.';
+                    truncated[13] = '.';
+                    truncated[14] = '\0';
+                    snprintf(line2, line2_size, "%s\nDEV:%d", truncated, device_id);
+                } else {
+                    snprintf(line2, line2_size, "%s\nDEV:%d", short_name, device_id);
+                }
+            } else {
+                snprintf(line1, line1_size, "SYSEX\nLOAD");
+            }
+            break;
+        case ACTION_SYSEX_PLAY: snprintf(line1, line1_size, "SysEx\nPLAY"); break;
+        case ACTION_SYSEX_STOP: snprintf(line1, line1_size, "SysEx\nSTOP"); break;
+        case ACTION_SYSEX_MUTE_CHANNEL:
+            snprintf(line1, line1_size, "SysEx");
+            snprintf(line2, line2_size, "MUTE %d", parameter);
+            break;
         default:
             snprintf(line1, line1_size, "???");
             break;
@@ -2528,8 +2758,8 @@ void my_midi_mapping(unsigned char status, unsigned char cc_or_note, unsigned ch
                     if (pad->action != ACTION_NONE) {
                         InputEvent event;
                         event.action = pad->action;
-                        // For ACTION_TRIGGER_NOTE_PAD, pass the pad index, not atoi(pad->parameters)
-                        event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD || pad->action == ACTION_FILE_LOAD_BYNAME) ? i : atoi(pad->parameters);
+                        // For ACTION_TRIGGER_NOTE_PAD, ACTION_FILE_LOAD_BYNAME, and ACTION_SYSEX_LOAD_FILE, pass the pad index, not atoi(pad->parameters)
+                        event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD || pad->action == ACTION_FILE_LOAD_BYNAME || pad->action == ACTION_SYSEX_LOAD_FILE) ? i : atoi(pad->parameters);
                         event.value = value;
                         handle_input_event(&event, false);
                     }
@@ -2558,8 +2788,8 @@ void my_midi_mapping(unsigned char status, unsigned char cc_or_note, unsigned ch
                     if (pad->action != ACTION_NONE) {
                         InputEvent event;
                         event.action = pad->action;
-                        // For ACTION_TRIGGER_NOTE_PAD, pass the global pad index, not atoi(pad->parameters)
-                        event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD || pad->action == ACTION_FILE_LOAD_BYNAME) ? global_idx : atoi(pad->parameters);
+                        // For ACTION_TRIGGER_NOTE_PAD, ACTION_FILE_LOAD_BYNAME, and ACTION_SYSEX_LOAD_FILE, pass the global pad index, not atoi(pad->parameters)
+                        event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD || pad->action == ACTION_FILE_LOAD_BYNAME || pad->action == ACTION_SYSEX_LOAD_FILE) ? global_idx : atoi(pad->parameters);
                         event.value = value;
                         handle_input_event(&event, false);
                     }
@@ -4054,8 +4284,8 @@ static void ShowMainUI() {
                             // Execute the configured action for this pad
                             InputEvent event;
                             event.action = pad->action;
-                            // For ACTION_TRIGGER_NOTE_PAD and ACTION_FILE_LOAD_BYNAME, pass the pad index, not atoi(pad->parameters)
-                            event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD || pad->action == ACTION_FILE_LOAD_BYNAME) ?
+                            // For ACTION_TRIGGER_NOTE_PAD, ACTION_FILE_LOAD_BYNAME, and ACTION_SYSEX_LOAD_FILE, pass the pad index, not atoi(pad->parameters)
+                            event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD || pad->action == ACTION_FILE_LOAD_BYNAME || pad->action == ACTION_SYSEX_LOAD_FILE) ?
                                              (is_song_pad ? (MAX_TRIGGER_PADS + pad_idx) : pad_idx) : atoi(pad->parameters);
                             event.value = 127; // Full value for trigger pads (note-on)
                             handle_input_event(&event);
@@ -5984,6 +6214,29 @@ static void ShowMainUI() {
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("When enabled, incoming MIDI Song Position Pointer messages sync row position.\nDisable if you want independent playback position (only tempo/transport sync).");
             }
+
+            ImGui::Dummy(ImVec2(0, 10.0f));
+            ImGui::Separator();
+            ImGui::Text("SysEx Inter-Instance Communication");
+            ImGui::Separator();
+
+            // SysEx Device ID
+            ImGui::Text("SysEx Device ID:");
+            ImGui::SameLine();
+            int sysex_id = common_state->device_config.sysex_device_id;
+            ImGui::SetNextItemWidth(80.0f);
+            if (ImGui::InputInt("##sysex_device_id", &sysex_id, 1, 10)) {
+                if (sysex_id < 0) sysex_id = 0;
+                if (sysex_id > 127) sysex_id = 127;
+                common_state->device_config.sysex_device_id = sysex_id;
+                sysex_set_device_id((uint8_t)sysex_id);
+                save_mappings_to_config();
+            }
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "(?)");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Unique device ID (0-127) for this Regroove instance.\nUse different IDs for each instance to enable remote control via SysEx commands.\nExample: Master=0, Slave1=1, Slave2=2, etc.");
+            }
         }
 
         ImGui::Dummy(ImVec2(0, 20.0f));
@@ -6383,7 +6636,7 @@ static void ShowMainUI() {
             ImGui::Columns(6, "app_pad_columns");
             ImGui::SetColumnWidth(0, 50.0f);   // Pad
             ImGui::SetColumnWidth(1, 160.0f);  // Action
-            ImGui::SetColumnWidth(2, 150.0f);  // Parameter
+            ImGui::SetColumnWidth(2, 450.0f);  // Parameter (wider for device+filename)
             ImGui::SetColumnWidth(3, 90.0f);   // MIDI Note
             ImGui::SetColumnWidth(4, 100.0f);  // Device
             ImGui::SetColumnWidth(5, 80.0f);   // Actions
@@ -6499,6 +6752,35 @@ static void ShowMainUI() {
                     if (ImGui::IsItemDeactivatedAfterEdit()) {
                         strncpy(pad->parameters, temp_filename, sizeof(pad->parameters) - 1);
                         pad->parameters[sizeof(pad->parameters) - 1] = '\0';
+                        save_mappings_to_config();
+                    }
+                } else if (pad->action == ACTION_SYSEX_LOAD_FILE) {
+                    // Device ID + Filename for SYSEX_LOAD_FILE
+                    // Parameters: "device_id;filename"
+                    int device_id = 0;
+                    char filename[256] = "";
+                    sscanf(pad->parameters, "%d;%255[^\n]", &device_id, filename);
+
+                    ImGui::Text("Device:");
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(60.0f);
+                    if (ImGui::InputInt("##sysex_dev", &device_id, 1, 10)) {
+                        if (device_id < 0) device_id = 0;
+                        if (device_id > 127) device_id = 127;
+                        snprintf(pad->parameters, sizeof(pad->parameters), "%d;%s", device_id, filename);
+                        save_mappings_to_config();
+                    }
+
+                    ImGui::SameLine();
+                    ImGui::Text("File:");
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(150.0f);
+                    char temp_filename[256];
+                    strncpy(temp_filename, filename, sizeof(temp_filename) - 1);
+                    temp_filename[sizeof(temp_filename) - 1] = '\0';
+                    ImGui::InputText("##sysex_filename", temp_filename, sizeof(temp_filename), ImGuiInputTextFlags_EnterReturnsTrue);
+                    if (ImGui::IsItemDeactivatedAfterEdit()) {
+                        snprintf(pad->parameters, sizeof(pad->parameters), "%d;%s", device_id, temp_filename);
                         save_mappings_to_config();
                     }
                 } else if (pad->action == ACTION_CHANNEL_MUTE || pad->action == ACTION_CHANNEL_SOLO ||
@@ -6628,7 +6910,7 @@ static void ShowMainUI() {
             ImGui::Columns(6, "song_pad_columns");
             ImGui::SetColumnWidth(0, 50.0f);   // Pad
             ImGui::SetColumnWidth(1, 160.0f);  // Action
-            ImGui::SetColumnWidth(2, 150.0f);  // Parameter
+            ImGui::SetColumnWidth(2, 450.0f);  // Parameter (wider for device+filename)
             ImGui::SetColumnWidth(3, 90.0f);   // MIDI Note
             ImGui::SetColumnWidth(4, 100.0f);  // Device
             ImGui::SetColumnWidth(5, 80.0f);   // Actions
@@ -8644,6 +8926,11 @@ int main(int argc, char* argv[]) {
     } else {
         printf("Loaded input mappings from %s\n", config_file);
     }
+
+    // Initialize SysEx system with device ID from config
+    sysex_init(common_state->device_config.sysex_device_id);
+    sysex_register_callback(sysex_command_callback, NULL);
+    printf("SysEx initialized with device ID: %d\n", common_state->device_config.sysex_device_id);
 
     // Apply loaded audio device setting to UI variable
     selected_audio_device = common_state->device_config.audio_device;

@@ -1,4 +1,5 @@
 #include "midi.h"
+#include "sysex.h"
 #ifndef _WIN32
 #include <unistd.h>
 #include <sys/time.h>
@@ -133,6 +134,16 @@ static void handle_midi_event(int device_id, double dt, const unsigned char *msg
             spp_cb(position, spp_userdata);
         }
         return;
+    }
+
+    // Handle SysEx messages (0xF0 ... 0xF7)
+    if (sz >= 5 && msg[0] == 0xF0) {
+        // Try to parse as Regroove SysEx message
+        if (sysex_parse_message(msg, sz)) {
+            // Message was handled by SysEx subsystem
+            return;
+        }
+        // Otherwise, fall through to regular handling
     }
 
     // Handle regular 3-byte messages (Note On/Off, CC)

@@ -34,6 +34,7 @@ if(NOT WIN32)
         midi.c
         midi_output.c
         input_mappings.c
+        sysex.c
     )
 
     target_include_directories(regroove-tui PRIVATE
@@ -69,6 +70,7 @@ add_executable(regroove-gui
     midi.c
     midi_output.c
     input_mappings.c
+    sysex.c
     lcd.c
     imgui/imgui.cpp
     imgui/imgui_draw.cpp

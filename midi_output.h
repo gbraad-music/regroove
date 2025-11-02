@@ -110,6 +110,12 @@ void midi_output_set_spp_config(int mode, int interval);
 // spp_position: MIDI beats position (already calculated from order/row)
 void midi_output_update_position(int spp_position);
 
+// Send SysEx message
+// msg: SysEx message buffer (must start with 0xF0 and end with 0xF7)
+// msg_len: length of message in bytes
+// Returns 0 on success, -1 on failure
+int midi_output_send_sysex(const unsigned char *msg, size_t msg_len);
+
 #ifdef __cplusplus
 }
 #endif

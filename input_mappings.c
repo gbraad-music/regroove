@@ -90,6 +90,10 @@ InputAction parse_action(const char *str) {
     if (strcmp(str, "midi_send_start") == 0) return ACTION_MIDI_SEND_START;
     if (strcmp(str, "midi_send_stop") == 0) return ACTION_MIDI_SEND_STOP;
     if (strcmp(str, "midi_send_spp") == 0) return ACTION_MIDI_SEND_SPP;
+    if (strcmp(str, "sysex_load_file") == 0) return ACTION_SYSEX_LOAD_FILE;
+    if (strcmp(str, "sysex_play") == 0) return ACTION_SYSEX_PLAY;
+    if (strcmp(str, "sysex_stop") == 0) return ACTION_SYSEX_STOP;
+    if (strcmp(str, "sysex_mute_channel") == 0) return ACTION_SYSEX_MUTE_CHANNEL;
     return ACTION_NONE;
 }
 
@@ -172,6 +176,10 @@ const char* input_action_name(InputAction action) {
         case ACTION_MIDI_SEND_START: return "midi_send_start";
         case ACTION_MIDI_SEND_STOP: return "midi_send_stop";
         case ACTION_MIDI_SEND_SPP: return "midi_send_spp";
+        case ACTION_SYSEX_LOAD_FILE: return "sysex_load_file";
+        case ACTION_SYSEX_PLAY: return "sysex_play";
+        case ACTION_SYSEX_STOP: return "sysex_stop";
+        case ACTION_SYSEX_MUTE_CHANNEL: return "sysex_mute_channel";
         default: return "none";
     }
 }
@@ -492,8 +500,9 @@ int input_mappings_load(InputMappings *mappings, const char *filepath) {
                 mappings->trigger_pads[pad_idx].midi_note = midi_note;
                 mappings->trigger_pads[pad_idx].midi_device = midi_device;
 
-                // Debug output for FILE_LOAD_BYNAME
-                if (action == ACTION_FILE_LOAD_BYNAME) {
+                // Debug output for FILE_LOAD_BYNAME and SYSEX actions
+                if (action == ACTION_FILE_LOAD_BYNAME || action == ACTION_SYSEX_LOAD_FILE ||
+                    action == ACTION_SYSEX_PLAY || action == ACTION_SYSEX_STOP || action == ACTION_SYSEX_MUTE_CHANNEL) {
                     printf("Loaded pad%d: action=%s, parameters='%s', midi_note=%d, midi_device=%d\n",
                            pad_num, input_action_name(action), parameters, midi_note, midi_device);
                 }

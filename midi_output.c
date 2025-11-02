@@ -642,3 +642,18 @@ void midi_output_send_clock_pulses(int frames, double sample_rate, double bpm) {
         clock_pulse_accumulator -= 1.0;
     }
 }
+
+int midi_output_send_sysex(const unsigned char *msg, size_t msg_len) {
+    if (!midi_out) return -1;
+    if (!msg || msg_len < 2) return -1;
+
+    // Validate SysEx message format
+    if (msg[0] != 0xF0 || msg[msg_len - 1] != 0xF7) {
+        fprintf(stderr, "[MIDI Output] Invalid SysEx message (must start with 0xF0 and end with 0xF7)\n");
+        return -1;
+    }
+
+    rtmidi_out_send_message(midi_out, msg, msg_len);
+    printf("[MIDI Output] Sent SysEx message (%zu bytes)\n", msg_len);
+    return 0;
+}
