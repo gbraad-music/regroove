@@ -32,6 +32,7 @@ typedef enum {
     ACTION_QUEUE_CHANNEL_SOLO,  // parameter = channel index (queued at pattern boundary)
     ACTION_CHANNEL_VOLUME,   // parameter = channel index, uses MIDI value for volume
     ACTION_TRIGGER_PAD,      // parameter = pad index (0-15)
+    ACTION_TRIGGER_NOTE_PAD, // send MIDI note with optional program change (uses pad config)
     ACTION_JUMP_TO_ORDER,    // parameter = order index (immediate jump)
     ACTION_JUMP_TO_PATTERN,  // parameter = pattern index (immediate jump)
     ACTION_QUEUE_ORDER,      // parameter = order index (queued jump at pattern end)
@@ -124,6 +125,11 @@ typedef struct {
     int midi_note;           // MIDI note number that triggers this pad (-1 = not mapped)
     int midi_device;         // Which MIDI device (-1 = any)
     int phrase_index;        // Index into phrases array (-1 = not using phrase, use action instead)
+    // For ACTION_TRIGGER_NOTE_PAD:
+    int note_output;         // MIDI note to send (0-127)
+    int note_velocity;       // MIDI velocity (0-127, default: 100)
+    int note_program;        // MIDI program change (-1 = none, 0-127 = send program change)
+    int note_channel;        // MIDI channel (-1 = omni/use default, 0-15 = specific channel)
 } TriggerPadConfig;
 
 // Input mappings configuration (application-wide from regroove.ini)

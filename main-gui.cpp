@@ -69,6 +69,11 @@ static bool fullscreen_pads_mode = false;  // Performance mode: hide sidebar, sh
 static float trigger_pad_fade[MAX_TOTAL_TRIGGER_PADS] = {0.0f};
 static float trigger_pad_transition_fade[MAX_TOTAL_TRIGGER_PADS] = {0.0f}; // Red blink on transition
 
+// Track held note pad for note-off on release
+static int held_note_pad_index = -1;  // -1 = no pad held
+static int held_note_midi_note = -1;   // The actual MIDI note being held
+static int held_note_midi_channel = -1; // The actual MIDI channel being used
+
 // Visual feedback for SPP send activity (blink when sending)
 static float spp_send_fade = 0.0f;
 
@@ -1093,7 +1098,8 @@ static void execute_action(InputAction action, int parameter, float value, void*
                     if (pad->action != ACTION_NONE) {
                         InputEvent pad_event;
                         pad_event.action = pad->action;
-                        pad_event.parameter = pad->parameter;
+                        // For ACTION_TRIGGER_NOTE_PAD, pass the pad index, not pad->parameter
+                        pad_event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD) ? parameter : pad->parameter;
                         pad_event.value = (int)value;
                         handle_input_event(&pad_event, false);  // from_playback=false
                     }
@@ -1109,9 +1115,92 @@ static void execute_action(InputAction action, int parameter, float value, void*
                     if (pad->action != ACTION_NONE) {
                         InputEvent pad_event;
                         pad_event.action = pad->action;
-                        pad_event.parameter = pad->parameter;
+                        // For ACTION_TRIGGER_NOTE_PAD, pass the pad index, not pad->parameter
+                        pad_event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD) ? parameter : pad->parameter;
                         pad_event.value = (int)value;
                         handle_input_event(&pad_event, false);  // from_playback=false
+                    }
+                }
+            }
+            break;
+        case ACTION_TRIGGER_NOTE_PAD:
+            // Send MIDI note-on/note-off based on pad press/release
+            // parameter = pad index (0-31), value = velocity (0 = release, >0 = press)
+            if (parameter >= 0 && parameter < MAX_TRIGGER_PADS) {
+                // Application pad (A1-A16)
+                if (common_state && common_state->input_mappings) {
+                    TriggerPadConfig *pad = &common_state->input_mappings->trigger_pads[parameter];
+
+                    if (value > 0) {
+                        // Pad pressed - send note-on
+                        int note = pad->note_output;
+                        int velocity = (pad->note_velocity > 0) ? pad->note_velocity : 100;
+                        int channel = (pad->note_channel >= 0 && pad->note_channel <= 15) ? pad->note_channel : 0;
+
+                        // Send program change if specified (1-based, 0 = use current/any)
+                        if (pad->note_program >= 1 && pad->note_program <= 128) {
+                            midi_output_program_change(channel, pad->note_program - 1); // Convert to 0-based
+                        }
+
+                        // Send note-on
+                        midi_output_note_on(channel, note, velocity);
+
+                        // Track held note for release
+                        held_note_pad_index = parameter;
+                        held_note_midi_note = note;
+                        held_note_midi_channel = channel;
+
+                        // Visual feedback is already set by the caller (line 2467)
+                    } else {
+                        // Pad released - send note-off if this pad is held
+                        printf("NOTE-OFF: parameter=%d, held_note_pad_index=%d, held_note_midi_note=%d\n",
+                               parameter, held_note_pad_index, held_note_midi_note);
+                        if (held_note_pad_index == parameter && held_note_midi_note >= 0) {
+                            printf("SENDING NOTE-OFF: channel=%d, note=%d\n", held_note_midi_channel, held_note_midi_note);
+                            midi_output_note_off(held_note_midi_channel, held_note_midi_note);
+                            held_note_pad_index = -1;
+                            held_note_midi_note = -1;
+                            held_note_midi_channel = -1;
+                        }
+                    }
+                }
+            } else if (parameter >= MAX_TRIGGER_PADS && parameter < MAX_TRIGGER_PADS + MAX_SONG_TRIGGER_PADS) {
+                // Song pad (S1-S16)
+                int song_pad_idx = parameter - MAX_TRIGGER_PADS;
+                if (common_state && common_state->metadata) {
+                    TriggerPadConfig *pad = &common_state->metadata->song_trigger_pads[song_pad_idx];
+
+                    if (value > 0) {
+                        // Pad pressed - send note-on
+                        int note = pad->note_output;
+                        int velocity = (pad->note_velocity > 0) ? pad->note_velocity : 100;
+                        int channel = (pad->note_channel >= 0 && pad->note_channel <= 15) ? pad->note_channel : 0;
+
+                        // Send program change if specified (1-based, 0 = use current/any)
+                        if (pad->note_program >= 1 && pad->note_program <= 128) {
+                            midi_output_program_change(channel, pad->note_program - 1); // Convert to 0-based
+                        }
+
+                        // Send note-on
+                        midi_output_note_on(channel, note, velocity);
+
+                        // Track held note for release
+                        held_note_pad_index = parameter;
+                        held_note_midi_note = note;
+                        held_note_midi_channel = channel;
+
+                        // Visual feedback is already set by the caller (line 2497)
+                    } else {
+                        // Pad released - send note-off if this pad is held
+                        printf("NOTE-OFF: parameter=%d, held_note_pad_index=%d, held_note_midi_note=%d\n",
+                               parameter, held_note_pad_index, held_note_midi_note);
+                        if (held_note_pad_index == parameter && held_note_midi_note >= 0) {
+                            printf("SENDING NOTE-OFF: channel=%d, note=%d\n", held_note_midi_channel, held_note_midi_note);
+                            midi_output_note_off(held_note_midi_channel, held_note_midi_note);
+                            held_note_pad_index = -1;
+                            held_note_midi_note = -1;
+                            held_note_midi_channel = -1;
+                        }
                     }
                 }
             }
@@ -1825,7 +1914,8 @@ static void unlearn_current_target() {
 // Pulls descriptions from metadata (pattern names, phrase names, loop names, channel names)
 static void format_pad_action_text(InputAction action, int parameter, char *line1, size_t line1_size,
                                     char *line2, size_t line2_size,
-                                    Regroove *player, RegrooveMetadata *metadata) {
+                                    Regroove *player, RegrooveMetadata *metadata,
+                                    TriggerPadConfig *pad = nullptr) {
     line1[0] = '\0';
     line2[0] = '\0';
 
@@ -1902,6 +1992,31 @@ static void format_pad_action_text(InputAction action, int parameter, char *line
         case ACTION_TRIGGER_PAD:
             snprintf(line1, line1_size, "TRIG");
             snprintf(line2, line2_size, "PAD %d", parameter + 1);
+            break;
+        case ACTION_TRIGGER_NOTE_PAD:
+            if (pad) {
+                // Show note name/number on line 1
+                const char *note_names[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+                int octave = (pad->note_output / 12) - 1;
+                int note_idx = pad->note_output % 12;
+                snprintf(line1, line1_size, "Note %s%d", note_names[note_idx], octave);
+
+                // Show program/channel info on line 2
+                if (pad->note_program >= 1) {  // 1-128 = program, 0 = current/any
+                    if (pad->note_channel >= 0) {
+                        snprintf(line2, line2_size, "P%d CH%d", pad->note_program, pad->note_channel + 1);
+                    } else {
+                        snprintf(line2, line2_size, "PGM %d", pad->note_program);
+                    }
+                } else if (pad->note_channel >= 0) {
+                    snprintf(line2, line2_size, "CH %d", pad->note_channel + 1);
+                } else {
+                    snprintf(line2, line2_size, "V%d", pad->note_velocity > 0 ? pad->note_velocity : 100);
+                }
+            } else {
+                snprintf(line1, line1_size, "NOTE");
+                snprintf(line2, line2_size, "PAD");
+            }
             break;
         case ACTION_JUMP_TO_ORDER:
         case ACTION_QUEUE_ORDER: {
@@ -2361,7 +2476,8 @@ void my_midi_mapping(unsigned char status, unsigned char cc_or_note, unsigned ch
                     if (pad->action != ACTION_NONE) {
                         InputEvent event;
                         event.action = pad->action;
-                        event.parameter = pad->parameter;
+                        // For ACTION_TRIGGER_NOTE_PAD, pass the pad index, not pad->parameter
+                        event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD) ? i : pad->parameter;
                         event.value = value;
                         handle_input_event(&event, false);
                     }
@@ -2390,8 +2506,66 @@ void my_midi_mapping(unsigned char status, unsigned char cc_or_note, unsigned ch
                     if (pad->action != ACTION_NONE) {
                         InputEvent event;
                         event.action = pad->action;
-                        event.parameter = pad->parameter;
+                        // For ACTION_TRIGGER_NOTE_PAD, pass the global pad index, not pad->parameter
+                        event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD) ? global_idx : pad->parameter;
                         event.value = value;
+                        handle_input_event(&event, false);
+                    }
+                    break; // Only trigger the first matching pad
+                }
+            }
+        }
+        return;
+    }
+
+    // Handle Note-Off messages for trigger pads (0x80 or 0x90 with velocity 0)
+    if (msg_type == 0x80 || (msg_type == 0x90 && value == 0)) {
+        int note = cc_or_note;
+        bool triggered = false;
+
+        // Check application trigger pads (A1-A16)
+        if (common_state && common_state->input_mappings) {
+            for (int i = 0; i < MAX_TRIGGER_PADS; i++) {
+                TriggerPadConfig *pad = &common_state->input_mappings->trigger_pads[i];
+                // Skip if disabled
+                if (pad->midi_device == -2) continue;
+
+                // Match device (if specified) and note
+                if (pad->midi_note == note &&
+                    (pad->midi_device == -1 || pad->midi_device == device_id)) {
+
+                    // Execute the configured action with value=0 (note-off)
+                    if (pad->action == ACTION_TRIGGER_NOTE_PAD) {
+                        InputEvent event;
+                        event.action = pad->action;
+                        event.parameter = i;  // Pass pad index
+                        event.value = 0;  // Note-off
+                        handle_input_event(&event, false);
+                    }
+                    triggered = true;
+                    break; // Only trigger the first matching pad
+                }
+            }
+        }
+
+        // If not triggered by application pad, check song trigger pads (S1-S16)
+        if (!triggered && common_state && common_state->metadata) {
+            for (int i = 0; i < MAX_SONG_TRIGGER_PADS; i++) {
+                TriggerPadConfig *pad = &common_state->metadata->song_trigger_pads[i];
+                // Skip if disabled
+                if (pad->midi_device == -2) continue;
+
+                // Match device (if specified) and note
+                if (pad->midi_note == note &&
+                    (pad->midi_device == -1 || pad->midi_device == device_id)) {
+
+                    // Execute the configured action with value=0 (note-off)
+                    if (pad->action == ACTION_TRIGGER_NOTE_PAD) {
+                        InputEvent event;
+                        event.action = pad->action;
+                        int global_idx = MAX_TRIGGER_PADS + i;
+                        event.parameter = global_idx;  // Pass global pad index
+                        event.value = 0;  // Note-off
                         handle_input_event(&event, false);
                     }
                     break; // Only trigger the first matching pad
@@ -3707,7 +3881,7 @@ static void ShowMainUI() {
 
                 ImGui::PushStyleColor(ImGuiCol_Button, padCol);
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.45f, 0.45f, 0.48f, 1.0f));
-                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.55f, 0.55f, 0.60f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.85f, 0.15f, 0.15f, 1.0f));  // RED when pressed
 
                 char label[64];
                 char action_line1[32], action_line2[32];
@@ -3716,7 +3890,7 @@ static void ShowMainUI() {
                 if (pad && pad->action != ACTION_NONE) {
                     format_pad_action_text(pad->action, pad->parameter, action_line1, sizeof(action_line1),
                                           action_line2, sizeof(action_line2),
-                                          player, common_state ? common_state->metadata : NULL);
+                                          player, common_state ? common_state->metadata : NULL, pad);
                     if (action_line2[0] != '\0') {
                         // Two lines: action + parameter
                         snprintf(label, sizeof(label), "%s\n%s", action_line1, action_line2);
@@ -3733,7 +3907,26 @@ static void ShowMainUI() {
                     }
                 }
 
-                if (ImGui::Button(label, ImVec2(padSize, padSize))) {
+                ImGui::Button(label, ImVec2(padSize, padSize));
+
+                bool is_active = ImGui::IsItemActive();
+                bool just_clicked = ImGui::IsItemClicked();
+                int global_pad_idx = is_song_pad ? (MAX_TRIGGER_PADS + pad_idx) : pad_idx;
+                bool was_held = (held_note_pad_index == global_pad_idx);
+
+                // Overlay red rectangle when button is actively pressed
+                if (is_active && pad && pad->action == ACTION_TRIGGER_NOTE_PAD) {
+                    ImVec2 p_min = ImGui::GetItemRectMin();
+                    ImVec2 p_max = ImGui::GetItemRectMax();
+                    ImGui::GetWindowDrawList()->AddRectFilled(p_min, p_max, IM_COL32(220, 40, 40, 180));
+                    // Redraw label on top
+                    ImVec2 text_pos = ImVec2((p_min.x + p_max.x) * 0.5f, (p_min.y + p_max.y) * 0.5f);
+                    ImGui::GetWindowDrawList()->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
+                        ImVec2(text_pos.x - ImGui::CalcTextSize(label).x * 0.5f, text_pos.y - ImGui::CalcTextSize(label).y * 0.5f),
+                        IM_COL32(255, 255, 255, 255), label);
+                }
+
+                if (just_clicked) {
                     if (learn_mode_active) {
                         if (is_song_pad) {
                             start_learn_for_song_pad(pad_idx);
@@ -3753,11 +3946,22 @@ static void ShowMainUI() {
                             // Execute the configured action for this pad
                             InputEvent event;
                             event.action = pad->action;
-                            event.parameter = pad->parameter;
-                            event.value = 127; // Full value for trigger pads
+                            // For ACTION_TRIGGER_NOTE_PAD, pass the pad index, not pad->parameter
+                            event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD) ?
+                                             (is_song_pad ? (MAX_TRIGGER_PADS + pad_idx) : pad_idx) : pad->parameter;
+                            event.value = 127; // Full value for trigger pads (note-on)
                             handle_input_event(&event);
                         }
                     }
+                } else if (!is_active && was_held && !learn_mode_active && pad && pad->action == ACTION_TRIGGER_NOTE_PAD) {
+                    // Button just released - send note-off (matching samplecrate logic)
+                    printf("UI BUTTON RELEASED: pad_idx=%d, is_song_pad=%d, sending note-off\n", pad_idx, is_song_pad);
+                    InputEvent event;
+                    event.action = pad->action;
+                    event.parameter = global_pad_idx;
+                    event.value = 0; // Note-off
+                    printf("UI calling handle_input_event with parameter=%d, value=0\n", event.parameter);
+                    handle_input_event(&event);
                 }
 
                 ImGui::PopStyleColor(3);
@@ -4111,11 +4315,31 @@ static void ShowMainUI() {
 
                 ImGui::PushStyleColor(ImGuiCol_Button, padCol);
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.45f, 0.45f, 0.48f, 1.0f));
-                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.55f, 0.55f, 0.60f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.85f, 0.15f, 0.15f, 1.0f));  // RED when pressed
 
                 char label[16];
                 snprintf(label, sizeof(label), "S%d", idx + 1);
-                if (ImGui::Button(label, ImVec2(padSize, padSize))) {
+                ImGui::Button(label, ImVec2(padSize, padSize));
+
+                bool is_active = ImGui::IsItemActive();
+                bool just_clicked = ImGui::IsItemClicked();
+                bool was_held = (held_note_pad_index == global_idx);
+
+                // Overlay red rectangle when button is actively pressed
+                if (is_active && common_state && common_state->metadata) {
+                    TriggerPadConfig *pad = &common_state->metadata->song_trigger_pads[idx];
+                    if (pad->action == ACTION_TRIGGER_NOTE_PAD) {
+                        ImVec2 p_min = ImGui::GetItemRectMin();
+                        ImVec2 p_max = ImGui::GetItemRectMax();
+                        ImGui::GetWindowDrawList()->AddRectFilled(p_min, p_max, IM_COL32(220, 40, 40, 180));
+                        // Redraw label on top
+                        ImVec2 text_size = ImGui::CalcTextSize(label);
+                        ImVec2 text_pos = ImVec2((p_min.x + p_max.x - text_size.x) * 0.5f, (p_min.y + p_max.y - text_size.y) * 0.5f);
+                        ImGui::GetWindowDrawList()->AddText(text_pos, IM_COL32(255, 255, 255, 255), label);
+                    }
+                }
+
+                if (just_clicked) {
                     if (learn_mode_active) {
                         start_learn_for_song_pad(idx);  // Use idx (0-15), not global_idx
                     } else if (common_state && common_state->metadata) {
@@ -4126,10 +4350,21 @@ static void ShowMainUI() {
                         if (pad->action != ACTION_NONE) {
                             InputEvent event;
                             event.action = pad->action;
-                            event.parameter = pad->parameter;
+                            // For ACTION_TRIGGER_NOTE_PAD, pass the global pad index, not pad->parameter
+                            event.parameter = (pad->action == ACTION_TRIGGER_NOTE_PAD) ? global_idx : pad->parameter;
                             event.value = 127; // Full value for trigger pads
                             handle_input_event(&event);
                         }
+                    }
+                } else if (!is_active && was_held && !learn_mode_active && common_state && common_state->metadata) {
+                    TriggerPadConfig *pad = &common_state->metadata->song_trigger_pads[idx];
+                    if (pad->action == ACTION_TRIGGER_NOTE_PAD) {
+                        // Send note-off when pad button is released
+                        InputEvent event;
+                        event.action = pad->action;
+                        event.parameter = global_idx;
+                        event.value = 0; // Note-off
+                        handle_input_event(&event);
                     }
                 }
 
@@ -6058,7 +6293,32 @@ static void ShowMainUI() {
                 ImGui::NextColumn();
 
                 // Parameter with +/- buttons (conditional based on action)
-                if (pad->action == ACTION_CHANNEL_MUTE || pad->action == ACTION_CHANNEL_SOLO ||
+                if (pad->action == ACTION_TRIGGER_NOTE_PAD) {
+                    // Special UI for note pad: Note/Vel/Pgm/Ch
+                    ImGui::SetNextItemWidth(40.0f);
+                    int old_note = pad->note_output;
+                    ImGui::InputInt("##note", &pad->note_output, 0, 0);
+                    if (pad->note_output < 0) pad->note_output = 0;
+                    if (pad->note_output > 127) pad->note_output = 127;
+                    if (old_note != pad->note_output) save_mappings_to_config();
+
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(35.0f);
+                    int old_vel = pad->note_velocity;
+                    ImGui::InputInt("##vel", &pad->note_velocity, 0, 0);
+                    if (pad->note_velocity < 0) pad->note_velocity = 0;
+                    if (pad->note_velocity > 127) pad->note_velocity = 127;
+                    if (old_vel != pad->note_velocity) save_mappings_to_config();
+
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(35.0f);
+                    int old_pgm = pad->note_program;
+                    ImGui::InputInt("##pgm", &pad->note_program, 0, 0);
+                    if (pad->note_program < 0) pad->note_program = 0;  // 0 = use current/any
+                    if (pad->note_program > 128) pad->note_program = 128;  // 1-128 = program 0-127
+                    if (old_pgm != pad->note_program) save_mappings_to_config();
+
+                } else if (pad->action == ACTION_CHANNEL_MUTE || pad->action == ACTION_CHANNEL_SOLO ||
                     pad->action == ACTION_QUEUE_CHANNEL_MUTE || pad->action == ACTION_QUEUE_CHANNEL_SOLO ||
                     pad->action == ACTION_CHANNEL_VOLUME || pad->action == ACTION_TRIGGER_PAD ||
                     pad->action == ACTION_JUMP_TO_ORDER || pad->action == ACTION_JUMP_TO_PATTERN ||
@@ -6089,7 +6349,28 @@ static void ShowMainUI() {
                 ImGui::NextColumn();
 
                 // MIDI Note display (read-only, set via LEARN mode)
-                if (pad->midi_note >= 0) {
+                // For ACTION_TRIGGER_NOTE_PAD, use this column for MIDI Channel selection
+                if (pad->action == ACTION_TRIGGER_NOTE_PAD) {
+                    const char* ch_label = pad->note_channel == -1 ? "Omni" :
+                                           (pad->note_channel >= 0 && pad->note_channel <= 15) ?
+                                           (std::string("Ch ") + std::to_string(pad->note_channel + 1)).c_str() : "Ch 1";
+                    ImGui::SetNextItemWidth(80.0f);
+                    if (ImGui::BeginCombo("##notechannel", ch_label)) {
+                        if (ImGui::Selectable("Omni", pad->note_channel == -1)) {
+                            pad->note_channel = -1;
+                            save_mappings_to_config();
+                        }
+                        for (int ch = 0; ch < 16; ch++) {
+                            char ch_str[16];
+                            snprintf(ch_str, sizeof(ch_str), "Ch %d", ch + 1);
+                            if (ImGui::Selectable(ch_str, pad->note_channel == ch)) {
+                                pad->note_channel = ch;
+                                save_mappings_to_config();
+                            }
+                        }
+                        ImGui::EndCombo();
+                    }
+                } else if (pad->midi_note >= 0) {
                     ImGui::Text("Note %d", pad->midi_note);
                 } else {
                     ImGui::TextDisabled("Not set");
@@ -6244,7 +6525,28 @@ static void ShowMainUI() {
                 ImGui::NextColumn();
 
                 // MIDI Note display (read-only, set via LEARN mode)
-                if (pad->midi_note >= 0) {
+                // For ACTION_TRIGGER_NOTE_PAD, use this column for MIDI Channel selection
+                if (pad->action == ACTION_TRIGGER_NOTE_PAD) {
+                    const char* ch_label = pad->note_channel == -1 ? "Omni" :
+                                           (pad->note_channel >= 0 && pad->note_channel <= 15) ?
+                                           (std::string("Ch ") + std::to_string(pad->note_channel + 1)).c_str() : "Ch 1";
+                    ImGui::SetNextItemWidth(80.0f);
+                    if (ImGui::BeginCombo("##notechannel", ch_label)) {
+                        if (ImGui::Selectable("Omni", pad->note_channel == -1)) {
+                            pad->note_channel = -1;
+                            save_mappings_to_config();
+                        }
+                        for (int ch = 0; ch < 16; ch++) {
+                            char ch_str[16];
+                            snprintf(ch_str, sizeof(ch_str), "Ch %d", ch + 1);
+                            if (ImGui::Selectable(ch_str, pad->note_channel == ch)) {
+                                pad->note_channel = ch;
+                                save_mappings_to_config();
+                            }
+                        }
+                        ImGui::EndCombo();
+                    }
+                } else if (pad->midi_note >= 0) {
                     ImGui::Text("Note %d", pad->midi_note);
                 } else {
                     ImGui::TextDisabled("Not set");

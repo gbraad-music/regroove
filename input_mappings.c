@@ -39,6 +39,7 @@ InputAction parse_action(const char *str) {
     if (strcmp(str, "queue_channel_solo") == 0) return ACTION_QUEUE_CHANNEL_SOLO;
     if (strcmp(str, "channel_volume") == 0) return ACTION_CHANNEL_VOLUME;
     if (strcmp(str, "trigger_pad") == 0) return ACTION_TRIGGER_PAD;
+    if (strcmp(str, "trigger_note_pad") == 0) return ACTION_TRIGGER_NOTE_PAD;
     if (strcmp(str, "jump_to_order") == 0) return ACTION_JUMP_TO_ORDER;
     if (strcmp(str, "jump_to_pattern") == 0) return ACTION_JUMP_TO_PATTERN;
     if (strcmp(str, "queue_order") == 0) return ACTION_QUEUE_ORDER;
@@ -121,6 +122,7 @@ const char* input_action_name(InputAction action) {
         case ACTION_QUEUE_CHANNEL_SOLO: return "queue_channel_solo";
         case ACTION_CHANNEL_VOLUME: return "channel_volume";
         case ACTION_TRIGGER_PAD: return "trigger_pad";
+        case ACTION_TRIGGER_NOTE_PAD: return "trigger_note_pad";
         case ACTION_JUMP_TO_ORDER: return "jump_to_order";
         case ACTION_JUMP_TO_PATTERN: return "jump_to_pattern";
         case ACTION_QUEUE_ORDER: return "queue_order";
@@ -220,6 +222,11 @@ void input_mappings_reset_defaults(InputMappings *mappings) {
         mappings->trigger_pads[i].midi_note = -1;
         mappings->trigger_pads[i].midi_device = -1;
         mappings->trigger_pads[i].phrase_index = -1;
+        // Initialize ACTION_TRIGGER_NOTE_PAD fields
+        mappings->trigger_pads[i].note_output = 60;  // Middle C (C4)
+        mappings->trigger_pads[i].note_velocity = 100;
+        mappings->trigger_pads[i].note_program = 0;  // 0 = use current/any program
+        mappings->trigger_pads[i].note_channel = -1;  // -1 = omni/default channel
     }
 
     // Set up default bindings for trigger pads
@@ -325,6 +332,11 @@ int input_mappings_load(InputMappings *mappings, const char *filepath) {
         mappings->trigger_pads[i].parameter = 0;
         mappings->trigger_pads[i].midi_note = -1;
         mappings->trigger_pads[i].midi_device = -1;
+        // Initialize ACTION_TRIGGER_NOTE_PAD fields
+        mappings->trigger_pads[i].note_output = 60;  // Middle C (C4)
+        mappings->trigger_pads[i].note_velocity = 100;
+        mappings->trigger_pads[i].note_program = 0;  // 0 = use current/any program
+        mappings->trigger_pads[i].note_channel = -1;  // -1 = omni/default channel
     }
 
     while (fgets(line, sizeof(line), f)) {
@@ -445,7 +457,7 @@ int input_mappings_load(InputMappings *mappings, const char *filepath) {
                 }
             }
         } else if (section == SECTION_TRIGGER_PADS) {
-            // Format: pad<number> = action[,parameter[,midi_note[,midi_device]]]
+            // Format: pad<number> = action,parameter,midi_note,midi_device,note_output,note_velocity,note_program,note_channel
             if (strncmp(key, "pad", 3) == 0) {
                 int pad_num = atoi(key + 3);
                 if (pad_num < 1 || pad_num > MAX_TRIGGER_PADS) continue;
@@ -453,6 +465,7 @@ int input_mappings_load(InputMappings *mappings, const char *filepath) {
 
                 char action_str[64];
                 int param = 0, midi_note = -1, midi_device = -1;
+                int note_output = 60, note_velocity = 100, note_program = 0, note_channel = -1;
 
                 strncpy(action_str, value, sizeof(action_str) - 1);
                 action_str[sizeof(action_str) - 1] = '\0';
@@ -474,11 +487,27 @@ int input_mappings_load(InputMappings *mappings, const char *filepath) {
                 tok = strtok(NULL, ",");
                 if (tok) midi_device = atoi(tok);
 
+                tok = strtok(NULL, ",");
+                if (tok) note_output = atoi(tok);
+
+                tok = strtok(NULL, ",");
+                if (tok) note_velocity = atoi(tok);
+
+                tok = strtok(NULL, ",");
+                if (tok) note_program = atoi(tok);
+
+                tok = strtok(NULL, ",");
+                if (tok) note_channel = atoi(tok);
+
                 // Set trigger pad configuration
                 mappings->trigger_pads[pad_idx].action = action;
                 mappings->trigger_pads[pad_idx].parameter = param;
                 mappings->trigger_pads[pad_idx].midi_note = midi_note;
                 mappings->trigger_pads[pad_idx].midi_device = midi_device;
+                mappings->trigger_pads[pad_idx].note_output = note_output;
+                mappings->trigger_pads[pad_idx].note_velocity = note_velocity;
+                mappings->trigger_pads[pad_idx].note_program = note_program;
+                mappings->trigger_pads[pad_idx].note_channel = note_channel;
             }
         }
     }
@@ -546,18 +575,26 @@ int input_mappings_save(InputMappings *mappings, const char *filepath) {
     }
 
     fprintf(f, "\n[trigger_pads]\n");
-    fprintf(f, "# Format: pad<number> = action[,parameter[,midi_note[,midi_device]]]\n");
-    fprintf(f, "# midi_note: -1 = not mapped, 0-127 = MIDI note number\n");
-    fprintf(f, "# midi_device: -1 = any device (default), 0 = device 0, 1 = device 1\n\n");
+    fprintf(f, "# Format: pad<number> = action,parameter,midi_note,midi_device,note_output,note_velocity,note_program,note_channel\n");
+    fprintf(f, "# midi_note: -1 = not mapped, 0-127 = MIDI note number (triggers this pad)\n");
+    fprintf(f, "# midi_device: -1 = any device (default), 0 = device 0, 1 = device 1\n");
+    fprintf(f, "# note_output: 0-127 = MIDI note to send (for ACTION_TRIGGER_NOTE_PAD)\n");
+    fprintf(f, "# note_velocity: 0-127 = velocity (for ACTION_TRIGGER_NOTE_PAD)\n");
+    fprintf(f, "# note_program: 0 = use current/any, 1-128 = program 1-128 (sent as 0-127 on wire) (for ACTION_TRIGGER_NOTE_PAD)\n");
+    fprintf(f, "# note_channel: -1 = omni/default, 0-15 = MIDI channel 1-16 (for ACTION_TRIGGER_NOTE_PAD)\n\n");
 
     for (int i = 0; i < MAX_TRIGGER_PADS; i++) {
         TriggerPadConfig *p = &mappings->trigger_pads[i];
-        fprintf(f, "pad%d = %s,%d,%d,%d\n",
+        fprintf(f, "pad%d = %s,%d,%d,%d,%d,%d,%d,%d\n",
                 i + 1,
                 input_action_name(p->action),
                 p->parameter,
                 p->midi_note,
-                p->midi_device);
+                p->midi_device,
+                p->note_output,
+                p->note_velocity,
+                p->note_program,
+                p->note_channel);
     }
 
     fclose(f);
