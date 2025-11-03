@@ -32,6 +32,7 @@ typedef enum {
     SYSEX_CMD_PLAY              = 0x20,  // Start playback
     SYSEX_CMD_STOP              = 0x21,  // Stop playback
     SYSEX_CMD_PAUSE             = 0x22,  // Pause/Continue
+    SYSEX_CMD_RETRIGGER         = 0x23,  // Retrigger current pattern
     SYSEX_CMD_CHANNEL_MUTE      = 0x30,  // Mute/unmute channel
     SYSEX_CMD_CHANNEL_SOLO      = 0x31,  // Solo/unsolo channel
     SYSEX_CMD_CHANNEL_VOLUME    = 0x32,  // Set channel volume
@@ -47,6 +48,9 @@ typedef enum {
     SYSEX_CMD_TRIGGER_PHRASE    = 0x50,  // Trigger phrase by index
     SYSEX_CMD_TRIGGER_LOOP      = 0x51,  // Trigger saved loop range by index
     SYSEX_CMD_TRIGGER_PAD       = 0x52,  // Trigger application/song pad by index
+    // State query/response (for visualization)
+    SYSEX_CMD_GET_CHANNEL_STATE = 0x60,  // Request channel state (all channels)
+    SYSEX_CMD_CHANNEL_STATE_RESPONSE = 0x61,  // Response with channel state data
 } SysExCommand;
 
 // SysEx message callback
@@ -166,6 +170,25 @@ size_t sysex_build_trigger_loop(uint8_t target_device_id, uint8_t loop_index,
 // pad_index: pad number (0-31)
 size_t sysex_build_trigger_pad(uint8_t target_device_id, uint8_t pad_index,
                                 uint8_t *buffer, size_t buffer_size);
+
+// Build RETRIGGER message
+// Retriggers the current pattern from the beginning
+size_t sysex_build_retrigger(uint8_t target_device_id, uint8_t *buffer, size_t buffer_size);
+
+// Build GET_CHANNEL_STATE message
+// Requests channel state information for visualization
+size_t sysex_build_get_channel_state(uint8_t target_device_id, uint8_t *buffer, size_t buffer_size);
+
+// Build CHANNEL_STATE_RESPONSE message
+// Sends channel state data for visualization
+// Format: For each channel (up to num_channels):
+//   - byte 0: channel index
+//   - byte 1: flags (bit 0: mute, bit 1: solo)
+//   - byte 2: volume (0-127)
+size_t sysex_build_channel_state_response(uint8_t target_device_id,
+                                           const uint8_t *channel_data,
+                                           size_t num_channels,
+                                           uint8_t *buffer, size_t buffer_size);
 
 // --- Helper Functions ---
 

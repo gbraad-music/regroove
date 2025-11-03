@@ -711,6 +711,52 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
             break;
         }
 
+        case SYSEX_CMD_RETRIGGER: {
+            printf("[SysEx] RETRIGGER command received\n");
+            InputEvent event;
+            event.action = ACTION_RETRIGGER;
+            event.parameter = 0;
+            event.value = 0;
+            handle_input_event(&event, false);
+            break;
+        }
+
+        case SYSEX_CMD_GET_CHANNEL_STATE: {
+            printf("[SysEx] GET_CHANNEL_STATE request from device %d\n", device_id);
+            // Build channel state data and send response
+            if (common_state && common_state->player) {
+                uint8_t channel_data[MAX_CHANNELS * 3];  // 3 bytes per channel
+                int num_active_channels = openmpt_module_get_num_channels(common_state->player->mod);
+                if (num_active_channels > MAX_CHANNELS) num_active_channels = MAX_CHANNELS;
+
+                for (int i = 0; i < num_active_channels; i++) {
+                    uint8_t flags = 0;
+                    if (regroove_is_channel_muted(common_state->player, i)) {
+                        flags |= 0x01;  // bit 0: mute
+                    }
+                    // Solo state is tracked in the Channel struct
+                    if (channels[i].solo) {
+                        flags |= 0x02;  // bit 1: solo
+                    }
+
+                    channel_data[i * 3 + 0] = i;                              // channel index
+                    channel_data[i * 3 + 1] = flags;                          // flags
+                    channel_data[i * 3 + 2] = (uint8_t)(channels[i].volume * 127.0f); // volume
+                }
+
+                // Send response via MIDI output
+                uint8_t sysex_buffer[512];
+                size_t len = sysex_build_channel_state_response(device_id, channel_data,
+                                                                 num_active_channels,
+                                                                 sysex_buffer, sizeof(sysex_buffer));
+                if (len > 0 && common_state->midi_output) {
+                    midi_output_send_sysex(common_state->midi_output, sysex_buffer, len);
+                    printf("[SysEx] Sent CHANNEL_STATE_RESPONSE with %d channels\n", num_active_channels);
+                }
+            }
+            break;
+        }
+
         case SYSEX_CMD_PING:
             printf("[SysEx] PING received from device %d\n", device_id);
             // Could respond with a PING back if needed

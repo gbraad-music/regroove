@@ -137,6 +137,18 @@ size_t sysex_build_pause(uint8_t target_device_id, uint8_t *buffer, size_t buffe
     return 5;
 }
 
+size_t sysex_build_retrigger(uint8_t target_device_id, uint8_t *buffer, size_t buffer_size) {
+    if (!buffer || buffer_size < 5) return 0;
+
+    buffer[0] = SYSEX_START;
+    buffer[1] = SYSEX_MANUFACTURER_ID;
+    buffer[2] = target_device_id & 0x7F;
+    buffer[3] = SYSEX_CMD_RETRIGGER;
+    buffer[4] = SYSEX_END;
+
+    return 5;
+}
+
 size_t sysex_build_channel_mute(uint8_t target_device_id, uint8_t channel, uint8_t mute,
                                  uint8_t *buffer, size_t buffer_size) {
     if (!buffer || buffer_size < 7) return 0;
@@ -330,6 +342,42 @@ size_t sysex_build_trigger_pad(uint8_t target_device_id, uint8_t pad_index,
     return 6;
 }
 
+size_t sysex_build_get_channel_state(uint8_t target_device_id, uint8_t *buffer, size_t buffer_size) {
+    if (!buffer || buffer_size < 5) return 0;
+
+    buffer[0] = SYSEX_START;
+    buffer[1] = SYSEX_MANUFACTURER_ID;
+    buffer[2] = target_device_id & 0x7F;
+    buffer[3] = SYSEX_CMD_GET_CHANNEL_STATE;
+    buffer[4] = SYSEX_END;
+
+    return 5;
+}
+
+size_t sysex_build_channel_state_response(uint8_t target_device_id,
+                                           const uint8_t *channel_data,
+                                           size_t num_channels,
+                                           uint8_t *buffer, size_t buffer_size) {
+    if (!buffer || !channel_data || num_channels == 0) return 0;
+
+    // Calculate required size: F0 7D <dev> <cmd> <num_ch> <data...> F7
+    // Each channel: 3 bytes (index, flags, volume)
+    size_t required = 6 + (num_channels * 3);
+    if (buffer_size < required) return 0;
+
+    buffer[0] = SYSEX_START;
+    buffer[1] = SYSEX_MANUFACTURER_ID;
+    buffer[2] = target_device_id & 0x7F;
+    buffer[3] = SYSEX_CMD_CHANNEL_STATE_RESPONSE;
+    buffer[4] = (uint8_t)(num_channels & 0x7F);
+
+    // Copy channel data (3 bytes per channel: index, flags, volume)
+    memcpy(&buffer[5], channel_data, num_channels * 3);
+    buffer[5 + (num_channels * 3)] = SYSEX_END;
+
+    return required;
+}
+
 // --- Helper Functions ---
 
 const char* sysex_command_name(SysExCommand cmd) {
@@ -339,6 +387,7 @@ const char* sysex_command_name(SysExCommand cmd) {
         case SYSEX_CMD_PLAY:           return "PLAY";
         case SYSEX_CMD_STOP:           return "STOP";
         case SYSEX_CMD_PAUSE:          return "PAUSE";
+        case SYSEX_CMD_RETRIGGER:      return "RETRIGGER";
         case SYSEX_CMD_CHANNEL_MUTE:        return "CHANNEL_MUTE";
         case SYSEX_CMD_CHANNEL_SOLO:        return "CHANNEL_SOLO";
         case SYSEX_CMD_CHANNEL_VOLUME:      return "CHANNEL_VOLUME";
@@ -352,6 +401,8 @@ const char* sysex_command_name(SysExCommand cmd) {
         case SYSEX_CMD_TRIGGER_PHRASE:    return "TRIGGER_PHRASE";
         case SYSEX_CMD_TRIGGER_LOOP:      return "TRIGGER_LOOP";
         case SYSEX_CMD_TRIGGER_PAD:       return "TRIGGER_PAD";
+        case SYSEX_CMD_GET_CHANNEL_STATE:      return "GET_CHANNEL_STATE";
+        case SYSEX_CMD_CHANNEL_STATE_RESPONSE: return "CHANNEL_STATE_RESPONSE";
         default:                       return "UNKNOWN";
     }
 }
