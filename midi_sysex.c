@@ -342,40 +342,84 @@ size_t sysex_build_trigger_pad(uint8_t target_device_id, uint8_t pad_index,
     return 6;
 }
 
-size_t sysex_build_get_channel_state(uint8_t target_device_id, uint8_t *buffer, size_t buffer_size) {
+size_t sysex_build_get_player_state(uint8_t target_device_id, uint8_t *buffer, size_t buffer_size) {
     if (!buffer || buffer_size < 5) return 0;
 
     buffer[0] = SYSEX_START;
     buffer[1] = SYSEX_MANUFACTURER_ID;
     buffer[2] = target_device_id & 0x7F;
-    buffer[3] = SYSEX_CMD_GET_CHANNEL_STATE;
+    buffer[3] = SYSEX_CMD_GET_PLAYER_STATE;
     buffer[4] = SYSEX_END;
 
     return 5;
 }
 
-size_t sysex_build_channel_state_response(uint8_t target_device_id,
-                                           const uint8_t *channel_data,
-                                           size_t num_channels,
-                                           uint8_t *buffer, size_t buffer_size) {
-    if (!buffer || !channel_data || num_channels == 0) return 0;
+size_t sysex_build_player_state_response(uint8_t target_device_id,
+                                          uint8_t playback_flags,
+                                          uint8_t order, uint8_t row,
+                                          uint8_t pattern, uint8_t total_rows,
+                                          uint8_t num_channels,
+                                          const uint8_t *mute_bits,
+                                          uint8_t *buffer, size_t buffer_size) {
+    if (!buffer || !mute_bits || num_channels == 0 || num_channels > 127) return 0;
 
-    // Calculate required size: F0 7D <dev> <cmd> <num_ch> <data...> F7
-    // Each channel: 3 bytes (index, flags, volume)
-    size_t required = 6 + (num_channels * 3);
+    // Calculate required size: F0 7D <dev> <cmd> <6 header bytes> <mute_bytes> F7
+    size_t mute_bytes = (num_channels + 7) / 8;  // ceil(num_channels / 8)
+    size_t required = 5 + 6 + mute_bytes + 1;  // start + manufacturer + device + cmd + data + end
     if (buffer_size < required) return 0;
 
-    buffer[0] = SYSEX_START;
-    buffer[1] = SYSEX_MANUFACTURER_ID;
-    buffer[2] = target_device_id & 0x7F;
-    buffer[3] = SYSEX_CMD_CHANNEL_STATE_RESPONSE;
-    buffer[4] = (uint8_t)(num_channels & 0x7F);
+    size_t pos = 0;
+    buffer[pos++] = SYSEX_START;
+    buffer[pos++] = SYSEX_MANUFACTURER_ID;
+    buffer[pos++] = target_device_id & 0x7F;
+    buffer[pos++] = SYSEX_CMD_PLAYER_STATE_RESPONSE;
 
-    // Copy channel data (3 bytes per channel: index, flags, volume)
-    memcpy(&buffer[5], channel_data, num_channels * 3);
-    buffer[5 + (num_channels * 3)] = SYSEX_END;
+    // Header data
+    buffer[pos++] = playback_flags & 0x7F;
+    buffer[pos++] = order & 0x7F;
+    buffer[pos++] = row & 0x7F;
+    buffer[pos++] = pattern & 0x7F;
+    buffer[pos++] = total_rows & 0x7F;
+    buffer[pos++] = num_channels & 0x7F;
 
-    return required;
+    // Mute bits
+    memcpy(&buffer[pos], mute_bits, mute_bytes);
+    pos += mute_bytes;
+
+    buffer[pos++] = SYSEX_END;
+
+    return pos;
+}
+
+int sysex_parse_player_state_response(const uint8_t *data, size_t data_len,
+                                       uint8_t *out_playback_flags,
+                                       uint8_t *out_order, uint8_t *out_row,
+                                       uint8_t *out_pattern, uint8_t *out_total_rows,
+                                       uint8_t *out_num_channels,
+                                       uint8_t *out_mute_bits) {
+    // Minimum: 6 header bytes + at least 1 mute byte
+    if (!data || data_len < 7) return 0;
+
+    // Extract header
+    if (out_playback_flags) *out_playback_flags = data[0];
+    if (out_order) *out_order = data[1];
+    if (out_row) *out_row = data[2];
+    if (out_pattern) *out_pattern = data[3];
+    if (out_total_rows) *out_total_rows = data[4];
+
+    uint8_t num_channels = data[5];
+    if (out_num_channels) *out_num_channels = num_channels;
+
+    // Validate data length
+    size_t mute_bytes = (num_channels + 7) / 8;
+    if (data_len < 6 + mute_bytes) return 0;
+
+    // Extract mute bits
+    if (out_mute_bits) {
+        memcpy(out_mute_bits, &data[6], mute_bytes);
+    }
+
+    return 1;
 }
 
 // --- Helper Functions ---
@@ -401,8 +445,8 @@ const char* sysex_command_name(SysExCommand cmd) {
         case SYSEX_CMD_TRIGGER_PHRASE:    return "TRIGGER_PHRASE";
         case SYSEX_CMD_TRIGGER_LOOP:      return "TRIGGER_LOOP";
         case SYSEX_CMD_TRIGGER_PAD:       return "TRIGGER_PAD";
-        case SYSEX_CMD_GET_CHANNEL_STATE:      return "GET_CHANNEL_STATE";
-        case SYSEX_CMD_CHANNEL_STATE_RESPONSE: return "CHANNEL_STATE_RESPONSE";
+        case SYSEX_CMD_GET_PLAYER_STATE:      return "GET_PLAYER_STATE";
+        case SYSEX_CMD_PLAYER_STATE_RESPONSE: return "PLAYER_STATE_RESPONSE";
         default:                       return "UNKNOWN";
     }
 }

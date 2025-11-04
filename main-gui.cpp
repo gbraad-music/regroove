@@ -721,37 +721,55 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
             break;
         }
 
-        case SYSEX_CMD_GET_CHANNEL_STATE: {
-            printf("[SysEx] GET_CHANNEL_STATE request from device %d\n", device_id);
-            // Build channel state data and send response
+        case SYSEX_CMD_GET_PLAYER_STATE: {
+            printf("[SysEx] GET_PLAYER_STATE request from device %d\n", device_id);
+            // Build optimized player state data and send response
             if (common_state && common_state->player) {
-                uint8_t channel_data[MAX_CHANNELS * 3];  // 3 bytes per channel
-                int num_active_channels = openmpt_module_get_num_channels(common_state->player->mod);
-                if (num_active_channels > MAX_CHANNELS) num_active_channels = MAX_CHANNELS;
+                int num_channels = regroove_get_num_channels(common_state->player);
+                if (num_channels > 127) num_channels = 127;  // SysEx max
 
-                for (int i = 0; i < num_active_channels; i++) {
-                    uint8_t flags = 0;
+                // Build playback flags
+                uint8_t flags = 0;
+                if (!common_state->paused) {
+                    flags |= 0x01;  // bit 0: playing
+                }
+                // bits 1-2: mode (00=song, 01=pattern/loop, 10=performance, 11=record)
+                if (regroove_performance_is_recording(common_state->performance)) {
+                    flags |= 0x06;  // 11 = record mode
+                } else if (regroove_performance_is_playing(common_state->performance)) {
+                    flags |= 0x04;  // 10 = performance mode
+                } else if (regroove_get_pattern_mode(common_state->player)) {
+                    flags |= 0x02;  // 01 = pattern/loop mode
+                }
+                // else: 00 = song mode (default)
+
+                // Get position data
+                uint8_t order = (uint8_t)(regroove_get_current_order(common_state->player) & 0x7F);
+                uint8_t row = (uint8_t)(regroove_get_current_row(common_state->player) & 0x7F);
+                uint8_t pattern = (uint8_t)(regroove_get_current_pattern(common_state->player) & 0x7F);
+                uint8_t total_rows = (uint8_t)(regroove_get_pattern_num_rows(common_state->player, pattern) & 0x7F);
+
+                // Build bit-packed mute data
+                uint8_t mute_bits[16];  // Up to 127 channels = 16 bytes
+                memset(mute_bits, 0, sizeof(mute_bits));
+                for (int i = 0; i < num_channels; i++) {
                     if (regroove_is_channel_muted(common_state->player, i)) {
-                        flags |= 0x01;  // bit 0: mute
+                        int byte_idx = i / 8;
+                        int bit_idx = i % 8;
+                        mute_bits[byte_idx] |= (1 << bit_idx);
                     }
-                    // Solo state is tracked in the Channel struct
-                    if (channels[i].solo) {
-                        flags |= 0x02;  // bit 1: solo
-                    }
-
-                    channel_data[i * 3 + 0] = i;                              // channel index
-                    channel_data[i * 3 + 1] = flags;                          // flags
-                    channel_data[i * 3 + 2] = (uint8_t)(channels[i].volume * 127.0f); // volume
                 }
 
                 // Send response via MIDI output
-                uint8_t sysex_buffer[512];
-                size_t len = sysex_build_channel_state_response(device_id, channel_data,
-                                                                 num_active_channels,
-                                                                 sysex_buffer, sizeof(sysex_buffer));
-                if (len > 0 && common_state->midi_output) {
-                    midi_output_send_sysex(common_state->midi_output, sysex_buffer, len);
-                    printf("[SysEx] Sent CHANNEL_STATE_RESPONSE with %d channels\n", num_active_channels);
+                uint8_t sysex_buffer[256];
+                size_t len = sysex_build_player_state_response(device_id, flags,
+                                                                order, row, pattern, total_rows,
+                                                                num_channels, mute_bits,
+                                                                sysex_buffer, sizeof(sysex_buffer));
+                if (len > 0) {
+                    midi_output_send_sysex(sysex_buffer, len);
+                    printf("[SysEx] Sent PLAYER_STATE_RESPONSE: %d channels, %zu bytes (was %zu with old format)\n",
+                           num_channels, len, (size_t)(6 + num_channels * 3));
                 }
             }
             break;

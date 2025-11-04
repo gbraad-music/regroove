@@ -49,8 +49,8 @@ typedef enum {
     SYSEX_CMD_TRIGGER_LOOP      = 0x51,  // Trigger saved loop range by index
     SYSEX_CMD_TRIGGER_PAD       = 0x52,  // Trigger application/song pad by index
     // State query/response (for visualization)
-    SYSEX_CMD_GET_CHANNEL_STATE = 0x60,  // Request channel state (all channels)
-    SYSEX_CMD_CHANNEL_STATE_RESPONSE = 0x61,  // Response with channel state data
+    SYSEX_CMD_GET_PLAYER_STATE = 0x60,  // Request complete player state
+    SYSEX_CMD_PLAYER_STATE_RESPONSE = 0x61,  // Response with player state data
 } SysExCommand;
 
 // SysEx message callback
@@ -175,20 +175,50 @@ size_t sysex_build_trigger_pad(uint8_t target_device_id, uint8_t pad_index,
 // Retriggers the current pattern from the beginning
 size_t sysex_build_retrigger(uint8_t target_device_id, uint8_t *buffer, size_t buffer_size);
 
-// Build GET_CHANNEL_STATE message
-// Requests channel state information for visualization
-size_t sysex_build_get_channel_state(uint8_t target_device_id, uint8_t *buffer, size_t buffer_size);
+// Build GET_PLAYER_STATE message
+// Requests complete player state for visualization
+size_t sysex_build_get_player_state(uint8_t target_device_id, uint8_t *buffer, size_t buffer_size);
 
-// Build CHANNEL_STATE_RESPONSE message
-// Sends channel state data for visualization
-// Format: For each channel (up to num_channels):
-//   - byte 0: channel index
-//   - byte 1: flags (bit 0: mute, bit 1: solo)
-//   - byte 2: volume (0-127)
-size_t sysex_build_channel_state_response(uint8_t target_device_id,
-                                           const uint8_t *channel_data,
-                                           size_t num_channels,
-                                           uint8_t *buffer, size_t buffer_size);
+// Build PLAYER_STATE_RESPONSE message
+// Sends complete player state data for visualization
+// Optimized format with bit-packing (supports up to 127 channels efficiently):
+//   - byte 0: playback flags
+//       bit 0: playing (0=stopped, 1=playing)
+//       bit 1-2: mode (00=song, 01=pattern/loop, 10=performance, 11=record)
+//       bits 3-7: reserved (set to 0)
+//   - byte 1: current order (0-127)
+//   - byte 2: current row (0-127)
+//   - byte 3: current pattern number (0-127)
+//   - byte 4: total rows in pattern (0-127)
+//   - byte 5: number of channels (1-127)
+//   - byte 6+: bit-packed channel mute states (ceil(num_channels/8) bytes)
+//       channel 0 = bit 0 of byte 6, channel 1 = bit 1 of byte 6, etc.
+//       1=muted, 0=unmuted
+//
+// Size examples:
+//   - 4 channels: 6 header + 1 mute = 7 bytes
+//   - 16 channels: 6 header + 2 mute = 8 bytes
+//   - 127 channels: 6 header + 16 mute = 22 bytes
+//
+// mute_bits: pointer to bit-packed mute states (ceil(num_channels/8) bytes)
+size_t sysex_build_player_state_response(uint8_t target_device_id,
+                                          uint8_t playback_flags,
+                                          uint8_t order, uint8_t row,
+                                          uint8_t pattern, uint8_t total_rows,
+                                          uint8_t num_channels,
+                                          const uint8_t *mute_bits,
+                                          uint8_t *buffer, size_t buffer_size);
+
+// Helper: Parse PLAYER_STATE_RESPONSE message
+// Returns 1 on success, 0 on failure
+// Extracts player state from a received PLAYER_STATE_RESPONSE message data payload
+// out_mute_bits must be allocated with at least ceil(num_channels/8) bytes
+int sysex_parse_player_state_response(const uint8_t *data, size_t data_len,
+                                       uint8_t *out_playback_flags,
+                                       uint8_t *out_order, uint8_t *out_row,
+                                       uint8_t *out_pattern, uint8_t *out_total_rows,
+                                       uint8_t *out_num_channels,
+                                       uint8_t *out_mute_bits);
 
 // --- Helper Functions ---
 
