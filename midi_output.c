@@ -458,8 +458,7 @@ void midi_output_send_song_position(int position) {
     msg[1] = position & 0x7F;        // LSB (bits 0-6)
     msg[2] = (position >> 7) & 0x7F; // MSB (bits 7-13)
 
-    printf("[MIDI Output] Sending Song Position: %d MIDI beats (0x%02X 0x%02X 0x%02X)\n",
-           position, msg[0], msg[1], msg[2]);
+    // Silent - happens frequently during playback
     rtmidi_out_send_message(midi_out, msg, 3);
 }
 
@@ -654,6 +653,6 @@ int midi_output_send_sysex(const unsigned char *msg, size_t msg_len) {
     }
 
     rtmidi_out_send_message(midi_out, msg, msg_len);
-    printf("[MIDI Output] Sent SysEx message (%zu bytes)\n", msg_len);
+    // Silent - SysEx messages sent frequently for state sync
     return 0;
 }

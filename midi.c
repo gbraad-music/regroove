@@ -133,7 +133,7 @@ static void handle_midi_event(int device_id, double dt, const unsigned char *msg
     // Handle 3-byte Song Position Pointer (0xF2 + LSB + MSB)
     if (sz == 3 && msg[0] == 0xF2) {
         int position = msg[1] | (msg[2] << 7);  // Combine 7-bit bytes
-        printf("[MIDI SPP] Received Song Position: %d MIDI beats\n", position);
+        // Silent - happens frequently during playback
         if (spp_cb) {
             spp_cb(position, spp_userdata);
         }

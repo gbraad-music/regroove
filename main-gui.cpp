@@ -621,8 +621,11 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
                                     const uint8_t *data, size_t data_len, void *userdata) {
     (void)userdata;  // Unused
 
-    printf("[SysEx] Received command from device %d: %s (data_len=%zu)\n",
-           device_id, sysex_command_name(command), data_len);
+    // Only log non-state-query commands to reduce spam
+    if (command != SYSEX_CMD_GET_PLAYER_STATE && command != SYSEX_CMD_PLAYER_STATE_RESPONSE) {
+        printf("[SysEx] Received command from device %d: %s (data_len=%zu)\n",
+               device_id, sysex_command_name(command), data_len);
+    }
 
     switch (command) {
         case SYSEX_CMD_FILE_LOAD: {
@@ -722,7 +725,6 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
         }
 
         case SYSEX_CMD_GET_PLAYER_STATE: {
-            printf("[SysEx] GET_PLAYER_STATE request from device %d\n", device_id);
             // Build optimized player state data and send response
             if (common_state && common_state->player) {
                 int num_channels = regroove_get_num_channels(common_state->player);
@@ -768,9 +770,24 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
                                                                 sysex_buffer, sizeof(sysex_buffer));
                 if (len > 0) {
                     midi_output_send_sysex(sysex_buffer, len);
-                    printf("[SysEx] Sent PLAYER_STATE_RESPONSE: %d channels, %zu bytes (was %zu with old format)\n",
-                           num_channels, len, (size_t)(6 + num_channels * 3));
+                    // Silent - this happens frequently during state sync
                 }
+            }
+            break;
+        }
+
+        case SYSEX_CMD_PLAYER_STATE_RESPONSE: {
+            // Received player state from another instance
+            // Parse the state data for visualization/monitoring
+            uint8_t flags, order, row, pattern, total_rows, num_channels;
+            uint8_t mute_bits[16];
+
+            if (sysex_parse_player_state_response(data, data_len,
+                                                   &flags, &order, &row, &pattern, &total_rows,
+                                                   &num_channels, mute_bits)) {
+                // Successfully parsed - could use this for visualization
+                // For now, just acknowledge receipt (no debug spam)
+                (void)flags; (void)order; (void)row; (void)pattern; (void)total_rows; (void)num_channels;
             }
             break;
         }
@@ -2995,13 +3012,15 @@ void my_midi_spp_callback(int position, void* userdata) {
     // Only sync if we're more than 2 rows off (avoids constant micro-adjustments)
     // This prevents "halting" caused by unnecessary row jumps
     if (row_diff < -2 || row_diff > 2) {
-        if (order == target_order) {
-            printf("[MIDI SPP] Syncing row %d->%d (diff=%d, SPP pos %d, same order %d)\n",
-                   current_row, target_row, row_diff, position, target_order);
-        } else {
-            printf("[MIDI SPP] Syncing row %d->%d (diff=%d, SPP pos %d, order mismatch: slave=%d, master=%d)\n",
-                   current_row, target_row, row_diff, position, order, target_order);
-        }
+        // Silent - SPP sync happens frequently, especially on loopback
+        // Uncomment for debugging sync issues:
+        // if (order == target_order) {
+        //     printf("[MIDI SPP] Syncing row %d->%d (diff=%d, SPP pos %d, same order %d)\n",
+        //            current_row, target_row, row_diff, position, target_order);
+        // } else {
+        //     printf("[MIDI SPP] Syncing row %d->%d (diff=%d, SPP pos %d, order mismatch: slave=%d, master=%d)\n",
+        //            current_row, target_row, row_diff, position, order, target_order);
+        // }
         // Lock audio to ensure jump and mute-apply happen atomically
         if (audio_device_id) SDL_LockAudioDevice(audio_device_id);
         regroove_set_position_row(common_state->player, target_row);

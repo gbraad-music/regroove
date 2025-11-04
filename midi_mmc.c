@@ -28,21 +28,18 @@ void mmc_register_callback(MMCCallback callback, void *userdata) {
 int mmc_parse_message(const uint8_t *msg, size_t msg_len) {
     // Minimum MMC message: F0 7F <dev> 06 <cmd> F7 = 6 bytes
     if (!msg || msg_len < 6) {
-        printf("[MMC DEBUG] Message too short: msg_len=%zu\n", msg_len);
         return 0;
     }
 
-    printf("[MMC DEBUG] Checking message: %02X %02X %02X %02X %02X %02X (len=%zu)\n",
-           msg[0], msg[1], msg[2], msg[3], msg[4], msg[5], msg_len);
+    // Quick rejection: Check if this is an MMC message before detailed parsing
+    // MMC messages MUST have: F0 7F xx 06 ...
+    if (msg[0] != MMC_SYSEX_START || msg[1] != MMC_UNIVERSAL_RT) {
+        return 0;  // Not an MMC message, fail fast without debug spam
+    }
 
     // Check for MMC message format: F0 7F <device_id> 06 <command> [data...] F7
-    if (msg[0] != MMC_SYSEX_START ||
-        msg[1] != MMC_UNIVERSAL_RT ||
-        msg[3] != MMC_SUB_ID_MMC ||
-        msg[msg_len - 1] != MMC_SYSEX_END) {
-        printf("[MMC DEBUG] Not a valid MMC message (start=%02X, univ=%02X, subid=%02X, end=%02X)\n",
-               msg[0], msg[1], msg[3], msg[msg_len-1]);
-        return 0;
+    if (msg[3] != MMC_SUB_ID_MMC || msg[msg_len - 1] != MMC_SYSEX_END) {
+        return 0;  // Invalid MMC format
     }
 
     uint8_t device_id = msg[2];
