@@ -4336,14 +4336,26 @@ static void ShowMainUI() {
                     }
                 }
 
-                // Check if pad controls a channel's mute state
+                // Check if pad controls a channel's mute/solo state
                 bool is_channel_muted = false;
+                bool is_channel_solo = false;
                 if (player && pad) {
                     int ch = atoi(pad->parameters);
                     if (ch >= 0 && ch < common_state->num_channels) {
-                        if (pad->action == ACTION_CHANNEL_MUTE || pad->action == ACTION_QUEUE_CHANNEL_MUTE ||
-                            pad->action == ACTION_CHANNEL_SOLO || pad->action == ACTION_QUEUE_CHANNEL_SOLO) {
+                        if (pad->action == ACTION_CHANNEL_MUTE || pad->action == ACTION_QUEUE_CHANNEL_MUTE) {
                             is_channel_muted = regroove_is_channel_muted(player, ch);
+                        } else if (pad->action == ACTION_CHANNEL_SOLO || pad->action == ACTION_QUEUE_CHANNEL_SOLO) {
+                            // Channel is solo if it's unmuted and all other channels are muted
+                            if (!regroove_is_channel_muted(player, ch)) {
+                                bool all_others_muted = true;
+                                for (int i = 0; i < common_state->num_channels; i++) {
+                                    if (i != ch && !regroove_is_channel_muted(player, i)) {
+                                        all_others_muted = false;
+                                        break;
+                                    }
+                                }
+                                is_channel_solo = all_others_muted;
+                            }
                         }
                     }
                 }
@@ -4446,8 +4458,8 @@ static void ShowMainUI() {
                         0.18f + transition_brightness * 0.10f,
                         1.0f
                     );
-                } else if (is_channel_muted) {
-                    // Red when channel is muted
+                } else if (is_channel_muted || is_channel_solo) {
+                    // Red when channel is muted OR when channel is solo'd
                     padCol = ImVec4(
                         0.70f + brightness * 0.20f,  // Red base with brightness
                         0.12f + brightness * 0.10f,
@@ -4819,15 +4831,27 @@ static void ShowMainUI() {
                     }
                 }
 
-                // Check if pad controls a channel's mute state
+                // Check if pad controls a channel's mute/solo state
                 bool is_channel_muted = false;
+                bool is_channel_solo = false;
                 if (player && common_state && common_state->metadata) {
                     TriggerPadConfig *pad = &common_state->metadata->song_trigger_pads[idx];
                     int ch = atoi(pad->parameters);
                     if (ch >= 0 && ch < common_state->num_channels) {
-                        if (pad->action == ACTION_CHANNEL_MUTE || pad->action == ACTION_QUEUE_CHANNEL_MUTE ||
-                            pad->action == ACTION_CHANNEL_SOLO || pad->action == ACTION_QUEUE_CHANNEL_SOLO) {
+                        if (pad->action == ACTION_CHANNEL_MUTE || pad->action == ACTION_QUEUE_CHANNEL_MUTE) {
                             is_channel_muted = regroove_is_channel_muted(player, ch);
+                        } else if (pad->action == ACTION_CHANNEL_SOLO || pad->action == ACTION_QUEUE_CHANNEL_SOLO) {
+                            // Channel is solo if it's unmuted and all other channels are muted
+                            if (!regroove_is_channel_muted(player, ch)) {
+                                bool all_others_muted = true;
+                                for (int i = 0; i < common_state->num_channels; i++) {
+                                    if (i != ch && !regroove_is_channel_muted(player, i)) {
+                                        all_others_muted = false;
+                                        break;
+                                    }
+                                }
+                                is_channel_solo = all_others_muted;
+                            }
                         }
                     }
                 }
@@ -4922,8 +4946,8 @@ static void ShowMainUI() {
                         0.18f + transition_brightness * 0.10f,
                         1.0f
                     );
-                } else if (is_channel_muted) {
-                    // Red when channel is muted
+                } else if (is_channel_muted || is_channel_solo) {
+                    // Red when channel is muted OR when channel is solo'd
                     padCol = ImVec4(
                         0.70f + brightness * 0.20f,  // Red base with brightness
                         0.12f + brightness * 0.10f,
