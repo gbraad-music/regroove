@@ -177,6 +177,7 @@ RegrooveCommonState* regroove_common_create(void) {
     state->device_config.midi_clock_spp_interval = 64; // Every pattern (default)
     state->device_config.midi_spp_receive = 1; // Enabled (default) - respond to incoming SPP
     state->device_config.midi_transport_control = 0; // Disabled (default)
+    state->device_config.midi_input_channel = 0; // Omni (all channels, default)
     state->device_config.sysex_device_id = 0; // Device ID 0 (default)
     state->device_config.interpolation_filter = 1; // Linear (default)
     state->device_config.stereo_separation = 100;  // 100% (default)
@@ -305,6 +306,8 @@ int regroove_common_load_mappings(RegrooveCommonState *state, const char *ini_pa
                     state->device_config.midi_spp_receive = atoi(value);
                 } else if (strcmp(key, "midi_transport_control") == 0) {
                     state->device_config.midi_transport_control = atoi(value);
+                } else if (strcmp(key, "midi_input_channel") == 0) {
+                    state->device_config.midi_input_channel = atoi(value);
                 } else if (strcmp(key, "sysex_device_id") == 0) {
                     state->device_config.sysex_device_id = atoi(value);
                 } else if (strcmp(key, "interpolation_filter") == 0) {
@@ -747,6 +750,7 @@ int regroove_common_save_device_config(RegrooveCommonState *state, const char *f
         fprintf(f, "midi_spp_speed_compensation = %d\n", state->device_config.midi_spp_speed_compensation);
         fprintf(f, "midi_spp_receive = %d\n", state->device_config.midi_spp_receive);
         fprintf(f, "midi_transport_control = %d\n", state->device_config.midi_transport_control);
+        fprintf(f, "midi_input_channel = %d\n", state->device_config.midi_input_channel);
         fprintf(f, "sysex_device_id = %d\n", state->device_config.sysex_device_id);
         fprintf(f, "interpolation_filter = %d\n", state->device_config.interpolation_filter);
         fprintf(f, "stereo_separation = %d\n", state->device_config.stereo_separation);
@@ -798,6 +802,7 @@ int regroove_common_save_device_config(RegrooveCommonState *state, const char *f
         fprintf(f, "midi_spp_speed_compensation = %d\n", state->device_config.midi_spp_speed_compensation);
         fprintf(f, "midi_spp_receive = %d\n", state->device_config.midi_spp_receive);
         fprintf(f, "midi_transport_control = %d\n", state->device_config.midi_transport_control);
+        fprintf(f, "midi_input_channel = %d\n", state->device_config.midi_input_channel);
         fprintf(f, "sysex_device_id = %d\n", state->device_config.sysex_device_id);
         fprintf(f, "interpolation_filter = %d\n", state->device_config.interpolation_filter);
         fprintf(f, "stereo_separation = %d\n", state->device_config.stereo_separation);
@@ -992,6 +997,8 @@ int regroove_common_save_default_config(const char *filepath) {
     fprintf(f, "midi_spp_receive = 1\n");
     fprintf(f, "# MIDI transport control: 0=disabled, 1=respond to Start/Stop/Continue\n");
     fprintf(f, "midi_transport_control = 0\n");
+    fprintf(f, "# MIDI input channel filter: 0=Omni (all channels), 1-16=specific channel\n");
+    fprintf(f, "midi_input_channel = 0\n");
     fprintf(f, "# SysEx device ID for inter-instance communication: 0-127 (default: 0)\n");
     fprintf(f, "sysex_device_id = 0\n");
     fprintf(f, "# Interpolation filter: 0=none, 1=linear, 2=cubic, 4=FIR\n");

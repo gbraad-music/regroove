@@ -6007,6 +6007,8 @@ static void ShowMainUI() {
                 if (common_state->device_config.midi_transport_control) {
                     midi_set_transport_control_enabled(1);
                 }
+                // Re-apply MIDI input channel filter
+                midi_set_input_channel_filter(common_state->device_config.midi_input_channel);
             } else {
                 midi_input_enabled = false;
             }
@@ -6472,6 +6474,25 @@ static void ShowMainUI() {
             ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "(?)");
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("Unique device ID (0-127) for this Regroove instance.\nUse different IDs for each instance to enable remote control via SysEx commands.\nExample: Master=0, Slave1=1, Slave2=2, etc.");
+            }
+
+            ImGui::Dummy(ImVec2(0, 10.0f));
+
+            // MIDI Input Channel Filter
+            ImGui::Text("MIDI Input Channel:");
+            ImGui::SameLine();
+            int midi_ch = common_state->device_config.midi_input_channel;
+            ImGui::SetNextItemWidth(120.0f);
+            const char* ch_items[] = {"Omni (All)", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"};
+            if (ImGui::Combo("##midi_input_channel", &midi_ch, ch_items, 17)) {
+                common_state->device_config.midi_input_channel = midi_ch;
+                midi_set_input_channel_filter(midi_ch);
+                save_mappings_to_config();
+            }
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "(?)");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Filter incoming MIDI messages by channel.\nOmni: Receive messages from all channels (default)\n1-16: Only receive messages from the specified channel");
             }
         }
 
@@ -9412,6 +9433,10 @@ int main(int argc, char* argv[]) {
             // Enable MIDI transport control if configured
             if (common_state && common_state->device_config.midi_transport_control) {
                 midi_set_transport_control_enabled(1);
+            }
+            // Set MIDI input channel filter if configured
+            if (common_state) {
+                midi_set_input_channel_filter(common_state->device_config.midi_input_channel);
             }
         }
     }

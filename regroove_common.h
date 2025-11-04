@@ -59,6 +59,7 @@ typedef struct {
     int midi_spp_speed_compensation; // 0 = disabled (speed-aware SPP), 1 = enabled (always 64 beats/pattern) (default: 1)
     int midi_spp_receive; // 0 = disabled (ignore incoming SPP), 1 = enabled (sync to incoming SPP) (default: 1)
     int midi_transport_control; // 0 = disabled, 1 = respond to MIDI Start/Stop/Continue (default: 0)
+    int midi_input_channel; // MIDI input channel filter: 0 = Omni (all channels), 1-16 = specific channel (default: 0)
     int sysex_device_id;    // SysEx device ID for inter-instance communication, 0-127 (default: 0)
     int interpolation_filter; // 0=none, 1=linear, 2=cubic, 4=FIR (default: 2)
     int stereo_separation;    // 0-200, stereo separation percentage (default: 100)

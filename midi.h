@@ -95,6 +95,18 @@ void midi_set_transport_callback(MidiTransportCallback callback, void* userdata)
 typedef void (*MidiSPPCallback)(int position, void* userdata);
 void midi_set_spp_callback(MidiSPPCallback callback, void* userdata);
 
+/**
+ * Set MIDI input channel filter.
+ * channel: 0 = Omni (receive all channels), 1-16 = specific channel
+ */
+void midi_set_input_channel_filter(int channel);
+
+/**
+ * Get current MIDI input channel filter setting.
+ * Returns 0 for Omni, or 1-16 for specific channel.
+ */
+int midi_get_input_channel_filter(void);
+
 #ifdef __cplusplus
 }
 #endif

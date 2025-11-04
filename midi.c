@@ -15,6 +15,9 @@ static RtMidiInPtr midiin[MIDI_MAX_DEVICES] = {NULL};
 static MidiEventCallback midi_cb = NULL;
 static void *cb_userdata = NULL;
 
+// MIDI input channel filter: 0 = Omni (all), 1-16 = specific channel
+static int midi_input_channel_filter = 0;
+
 // MIDI Clock synchronization state
 static int clock_sync_enabled = 0;
 static double clock_bpm = 0.0;
@@ -154,6 +157,15 @@ static void handle_midi_event(int device_id, double dt, const unsigned char *msg
 
     // Handle regular 3-byte messages (Note On/Off, CC)
     if (midi_cb && sz >= 3) {
+        // Apply channel filtering if not in Omni mode
+        if (midi_input_channel_filter > 0) {
+            // Extract channel from status byte (lower 4 bits)
+            int msg_channel = (msg[0] & 0x0F) + 1;  // Convert 0-15 to 1-16
+            if (msg_channel != midi_input_channel_filter) {
+                // Message not for our channel, ignore it
+                return;
+            }
+        }
         midi_cb(msg[0], msg[1], msg[2], device_id, cb_userdata);
     }
 }
@@ -299,4 +311,20 @@ void midi_set_transport_callback(MidiTransportCallback callback, void* userdata)
 void midi_set_spp_callback(MidiSPPCallback callback, void* userdata) {
     spp_cb = callback;
     spp_userdata = userdata;
+}
+
+void midi_set_input_channel_filter(int channel) {
+    // Clamp to valid range: 0 (Omni) or 1-16 (specific channel)
+    if (channel < 0) channel = 0;
+    if (channel > 16) channel = 16;
+    midi_input_channel_filter = channel;
+    if (channel == 0) {
+        printf("[MIDI] Input channel filter set to Omni (all channels)\n");
+    } else {
+        printf("[MIDI] Input channel filter set to channel %d\n", channel);
+    }
+}
+
+int midi_get_input_channel_filter(void) {
+    return midi_input_channel_filter;
 }
