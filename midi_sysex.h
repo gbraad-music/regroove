@@ -62,13 +62,12 @@ typedef enum {
 typedef void (*SysExCallback)(uint8_t device_id, SysExCommand command,
                               const uint8_t *data, size_t data_len, void *userdata);
 
-// Initialize SysEx system with this device's ID
-void sysex_init(uint8_t device_id);
+// Initialize SysEx system with pointer to device ID
+// The pointer must remain valid for the lifetime of the SysEx system
+// This allows the device ID to be updated without additional setter calls
+void sysex_init(const uint8_t *device_id_ptr);
 
-// Set device ID (0-127)
-void sysex_set_device_id(uint8_t device_id);
-
-// Get current device ID
+// Get current device ID (reads from the pointer passed to sysex_init)
 uint8_t sysex_get_device_id(void);
 
 // Register callback for incoming SysEx commands

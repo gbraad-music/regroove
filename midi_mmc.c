@@ -2,22 +2,22 @@
 #include <stdio.h>
 #include <string.h>
 
-// Global state
-static uint8_t mmc_device_id = MMC_DEVICE_DEFAULT;
+// Pointer to device ID (managed externally, typically in device config)
+static const uint8_t *mmc_device_id_ptr = NULL;
 static MMCCallback mmc_callback = NULL;
 static void *mmc_callback_userdata = NULL;
 
-void mmc_init(uint8_t device_id) {
-    mmc_device_id = device_id;
-    printf("[MMC] Initialized with device ID: %d\n", device_id);
-}
-
-void mmc_set_device_id(uint8_t device_id) {
-    mmc_device_id = device_id;
+void mmc_init(const uint8_t *device_id_ptr) {
+    mmc_device_id_ptr = device_id_ptr;
+    if (device_id_ptr) {
+        printf("[MMC] Initialized with device ID pointer (current value: %d)\n", *device_id_ptr);
+    } else {
+        printf("[MMC] Warning: Initialized with NULL device ID pointer\n");
+    }
 }
 
 uint8_t mmc_get_device_id(void) {
-    return mmc_device_id;
+    return mmc_device_id_ptr ? *mmc_device_id_ptr : 0;
 }
 
 void mmc_register_callback(MMCCallback callback, void *userdata) {
@@ -48,8 +48,9 @@ int mmc_parse_message(const uint8_t *msg, size_t msg_len) {
     size_t data_len = (msg_len > 6) ? (msg_len - 6) : 0;
 
     // Check if message is for us (our device ID or broadcast)
-    if (device_id != mmc_device_id && device_id != MMC_DEVICE_ALL) {
-        printf("[MMC] Message for device %d (we are %d), ignoring\n", device_id, mmc_device_id);
+    uint8_t our_device_id = mmc_device_id_ptr ? *mmc_device_id_ptr : 0;
+    if (device_id != our_device_id && device_id != MMC_DEVICE_ALL) {
+        printf("[MMC] Message for device %d (we are %d), ignoring\n", device_id, our_device_id);
         return 1;  // Valid MMC message, just not for us
     }
 

@@ -58,13 +58,12 @@ typedef struct {
 typedef void (*MMCCallback)(uint8_t device_id, MMCCommand command,
                             const uint8_t *data, size_t data_len, void *userdata);
 
-// Initialize MMC system
-void mmc_init(uint8_t device_id);
+// Initialize MMC system with pointer to device ID
+// The pointer must remain valid for the lifetime of the MMC system
+// This allows the device ID to be updated without additional setter calls
+void mmc_init(const uint8_t *device_id_ptr);
 
-// Set device ID (0-127, or 0x7F for all devices)
-void mmc_set_device_id(uint8_t device_id);
-
-// Get current device ID
+// Get current device ID (reads from the pointer passed to mmc_init)
 uint8_t mmc_get_device_id(void);
 
 // Register callback for incoming MMC commands

@@ -6574,8 +6574,7 @@ static void ShowMainUI() {
                 if (sysex_id < 0) sysex_id = 0;
                 if (sysex_id > 127) sysex_id = 127;
                 common_state->device_config.sysex_device_id = sysex_id;
-                sysex_set_device_id((uint8_t)sysex_id);
-                mmc_set_device_id((uint8_t)sysex_id);  // Also update MMC device ID
+                // No setter calls needed - SysEx and MMC read directly from config pointer
                 save_mappings_to_config();
             }
             ImGui::SameLine();
@@ -9405,15 +9404,13 @@ int main(int argc, char* argv[]) {
         printf("Loaded input mappings from %s\n", config_file);
     }
 
-    // Initialize SysEx system with device ID from config
-    sysex_init(common_state->device_config.sysex_device_id);
+    // Initialize SysEx system with pointer to device ID in config
+    sysex_init((const uint8_t*)&common_state->device_config.sysex_device_id);
     sysex_register_callback(sysex_command_callback, NULL);
-    printf("SysEx initialized with device ID: %d\n", common_state->device_config.sysex_device_id);
 
-    // Initialize MMC system with device ID from config
-    mmc_init(common_state->device_config.sysex_device_id);
+    // Initialize MMC system with pointer to device ID in config (shared with SysEx)
+    mmc_init((const uint8_t*)&common_state->device_config.sysex_device_id);
     mmc_register_callback(mmc_command_callback, NULL);
-    printf("MMC initialized with device ID: %d\n", common_state->device_config.sysex_device_id);
 
     // Apply loaded audio device setting to UI variable
     selected_audio_device = common_state->device_config.audio_device;

@@ -2,25 +2,24 @@
 #include <stdio.h>
 #include <string.h>
 
-// Current device ID
-static uint8_t local_device_id = 0;
+// Pointer to device ID (managed externally, typically in device config)
+static const uint8_t *local_device_id_ptr = NULL;
 
 // Callback for incoming messages
 static SysExCallback message_callback = NULL;
 static void *callback_userdata = NULL;
 
-void sysex_init(uint8_t device_id) {
-    local_device_id = device_id & 0x7F;  // Ensure 7-bit
-    printf("[SysEx] Initialized with device ID: %d\n", local_device_id);
-}
-
-void sysex_set_device_id(uint8_t device_id) {
-    local_device_id = device_id & 0x7F;
-    printf("[SysEx] Device ID set to: %d\n", local_device_id);
+void sysex_init(const uint8_t *device_id_ptr) {
+    local_device_id_ptr = device_id_ptr;
+    if (device_id_ptr) {
+        printf("[SysEx] Initialized with device ID pointer (current value: %d)\n", *device_id_ptr);
+    } else {
+        printf("[SysEx] Warning: Initialized with NULL device ID pointer\n");
+    }
 }
 
 uint8_t sysex_get_device_id(void) {
-    return local_device_id;
+    return local_device_id_ptr ? *local_device_id_ptr : 0;
 }
 
 void sysex_register_callback(SysExCallback callback, void *userdata) {
@@ -46,7 +45,8 @@ int sysex_parse_message(const uint8_t *msg, size_t msg_len) {
     uint8_t command = msg[3];
 
     // Check if message is for us (or broadcast)
-    if (device_id != local_device_id && device_id != SYSEX_DEVICE_BROADCAST) {
+    uint8_t our_device_id = local_device_id_ptr ? *local_device_id_ptr : 0;
+    if (device_id != our_device_id && device_id != SYSEX_DEVICE_BROADCAST) {
         return 0;  // Not for us
     }
 
