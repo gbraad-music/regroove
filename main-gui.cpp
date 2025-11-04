@@ -623,7 +623,7 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
 
     // Only log non-state-query commands to reduce spam
     if (command != SYSEX_CMD_GET_PLAYER_STATE && command != SYSEX_CMD_PLAYER_STATE_RESPONSE) {
-        printf("[SysEx] Received command from device %d: %s (data_len=%zu)\n",
+        printf("[SysEx] Received command for device %d: %s (data_len=%zu)\n",
                device_id, sysex_command_name(command), data_len);
     }
 
@@ -808,7 +808,7 @@ static void mmc_command_callback(uint8_t device_id, MMCCommand command,
                                   const uint8_t *data, size_t data_len, void *userdata) {
     (void)userdata;  // Unused
 
-    printf("[MMC] Received command from device %d: 0x%02X (data_len=%zu)\n",
+    printf("[MMC] Received command for device %d: 0x%02X (data_len=%zu)\n",
            device_id, command, data_len);
 
     InputEvent event;
@@ -6575,6 +6575,7 @@ static void ShowMainUI() {
                 if (sysex_id > 127) sysex_id = 127;
                 common_state->device_config.sysex_device_id = sysex_id;
                 sysex_set_device_id((uint8_t)sysex_id);
+                mmc_set_device_id((uint8_t)sysex_id);  // Also update MMC device ID
                 save_mappings_to_config();
             }
             ImGui::SameLine();
