@@ -6066,6 +6066,50 @@ static void ShowMainUI() {
 
             ImGui::Dummy(ImVec2(0, 12.0f));
             ImGui::TextWrapped("Channel panning settings are saved to the .rgx file. Use 'Reset' to restore the module's original panning.");
+
+            // Stereo Separation Section
+            ImGui::Dummy(ImVec2(0, 20.0f));
+            ImGui::TextColored(COLOR_SECTION_HEADING, "STEREO SEPARATION");
+            ImGui::Separator();
+            ImGui::Dummy(ImVec2(0, 8.0f));
+
+            ImGui::TextWrapped("Set the default stereo separation width for this song. This is applied when the module loads.");
+            ImGui::Dummy(ImVec2(0, 8.0f));
+
+            if (common_state && common_state->metadata) {
+                ImGui::Text("Default Stereo Separation:");
+                ImGui::SameLine(200.0f);
+                
+                ImGui::SetNextItemWidth(300.0f);
+                if (ImGui::SliderInt("##default_stereo_sep", &common_state->metadata->stereo_separation, 0, 200, "%d%%")) {
+                    // Apply immediately to the playing module while dragging
+                    if (mod) {
+                        regroove_set_stereo_separation(mod, common_state->metadata->stereo_separation);
+                    }
+                }
+                
+                // Save only when slider is deactivated (mouse released)
+                if (ImGui::IsItemDeactivatedAfterEdit()) {
+                    save_rgx_metadata();
+                }
+                
+                ImGui::SameLine();
+                
+                // Reset button to restore default (100%)
+                if (ImGui::Button("Reset##stereo_sep")) {
+                    common_state->metadata->stereo_separation = 100;
+                    
+                    // Apply default
+                    if (mod) {
+                        regroove_set_stereo_separation(mod, 100);
+                    }
+                    
+                    save_rgx_metadata();
+                }
+            }
+
+            ImGui::Dummy(ImVec2(0, 12.0f));
+            ImGui::TextWrapped("Stereo separation: 0=mono, 100=normal (default), 200=wide stereo. Saved to the .rgx file.");
         }
 
         ImGui::EndChild(); // End info_scroll child window
@@ -7833,6 +7877,52 @@ static void ShowMainUI() {
             col_index++;
         }
 
+        // --- STEREO SEPARATION COLUMN ---
+        {
+            float colX = origin.x + col_index * (sliderW + spacing);
+            ImGui::SetCursorPos(ImVec2(colX, origin.y + 8.0f));
+            ImGui::BeginGroup();
+            ImGui::TextColored(ImVec4(0.7f, 0.9f, 0.9f, 1.0f), "STEREO");
+            ImGui::Dummy(ImVec2(0, 4.0f));
+
+            // Dummy FX button placeholder to match layout
+            ImGui::Dummy(ImVec2(sliderW, SOLO_SIZE));
+            ImGui::Dummy(ImVec2(0, 2.0f));
+
+            // Dummy pan slider placeholder to match layout
+            ImGui::Dummy(ImVec2(sliderW, panSliderH));
+            ImGui::Dummy(ImVec2(0, 2.0f));
+
+            // Stereo separation slider (0-200, with 100 as center/default)
+            // Reads from player state (like panning), RGX provides default on load
+            if (common_state && common_state->player) {
+                int stereo_sep = regroove_get_stereo_separation(common_state->player);
+                float stereo_slider = (float)stereo_sep / 100.0f; // Map 0-200 to 0.0-2.0
+
+                if (ImGui::VSliderFloat("##stereo_sep", ImVec2(sliderW, sliderH),
+                                        &stereo_slider, 0.0f, 2.0f, "")) {
+                    stereo_sep = (int)(stereo_slider * 100.0f);
+                    if (stereo_sep < 0) stereo_sep = 0;
+                    if (stereo_sep > 200) stereo_sep = 200;
+                    // Apply to player state immediately
+                    regroove_set_stereo_separation(common_state->player, stereo_sep);
+                }
+            }
+            ImGui::Dummy(ImVec2(0, 8.0f));
+
+            // Reset button (to RGX default or 100%)
+            if (ImGui::Button("R##stereo_reset", ImVec2(sliderW, MUTE_SIZE))) {
+                if (common_state && common_state->player) {
+                    // Reset to RGX default if available, otherwise 100
+                    int default_sep = (common_state->metadata) ? common_state->metadata->stereo_separation : 100;
+                    regroove_set_stereo_separation(common_state->player, default_sep);
+                }
+            }
+
+            ImGui::EndGroup();
+            col_index++;
+        }
+
         // --- MASTER CHANNEL ---
         {
             float colX = origin.x + col_index * (sliderW + spacing);
@@ -8682,25 +8772,7 @@ static void ShowMainUI() {
 
         ImGui::Dummy(ImVec2(0, 8.0f));
 
-        // Stereo Separation Section
-        ImGui::Text("Stereo Separation:");
-        ImGui::SameLine(150.0f);
-        if (common_state) {
-            int stereo_sep = common_state->device_config.stereo_separation;
-            ImGui::SetNextItemWidth(200);
-            if (ImGui::SliderInt("##stereo_sep", &stereo_sep, 0, 200, "%d%%")) {
-                common_state->device_config.stereo_separation = stereo_sep;
-                regroove_common_save_device_config(common_state, current_config_file);
-                // Apply immediately if module is loaded
-                if (common_state->player) {
-                    regroove_set_stereo_separation(common_state->player, stereo_sep);
-                }
-            }
-        }
-        ImGui::SameLine();
-        ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "0=mono, 100=default, 200=wide");
-
-        ImGui::Dummy(ImVec2(0, 8.0f));
+        // Note: Stereo Separation has been moved to the MIX panel for easier access during mixing
 
         // Dither Section
         ImGui::Text("Dither:");

@@ -54,6 +54,12 @@ RegrooveMetadata* regroove_metadata_create(void) {
         meta->channel_names[i][0] = '\0';
         meta->channel_pan[i] = -1;  // -1 = use module's default panning
     }
+    
+    // Initialize stereo separation to default (100 = normal stereo)
+    meta->stereo_separation = 100;
+
+    // Initialize stereo separation to default (100 = normal stereo)
+    meta->stereo_separation = 100;
 
     return meta;
 }
@@ -154,6 +160,8 @@ int regroove_metadata_load(RegrooveMetadata *meta, const char *rgx_path) {
             } else if (strcmp(key, "file") == 0) {
                 strncpy(meta->module_file, value, RGX_MAX_FILEPATH - 1);
                 meta->module_file[RGX_MAX_FILEPATH - 1] = '\0';
+            } else if (strcmp(key, "stereo_separation") == 0) {
+                meta->stereo_separation = atoi(value);
             }
         } else if (strcmp(section, "Patterns") == 0) {
             // Pattern description: pattern_0=description
@@ -309,6 +317,7 @@ int regroove_metadata_save(const RegrooveMetadata *meta, const char *rgx_path) {
     if (meta->module_file[0] != '\0') {
         fprintf(f, "file=\"%s\"\n", meta->module_file);
     }
+    fprintf(f, "stereo_separation=%d\n", meta->stereo_separation);
     fprintf(f, "\n");
 
     // Write Patterns section if we have any descriptions

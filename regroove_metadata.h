@@ -91,6 +91,9 @@ typedef struct {
     // MIDI program change (preset) per instrument
     // -1 = no program change, 0-127 = MIDI program number
     int instrument_program[RGX_MAX_INSTRUMENTS];
+
+    // Stereo separation (0-200, 100 = default, 0 = mono, 200 = wide stereo)
+    int stereo_separation;
 } RegrooveMetadata;
 
 // Create new metadata structure

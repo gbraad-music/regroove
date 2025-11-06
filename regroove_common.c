@@ -448,7 +448,7 @@ int regroove_common_load_module(RegrooveCommonState *state, const char *path,
 
     // Apply audio quality settings from config
     regroove_set_interpolation_filter(mod, state->device_config.interpolation_filter);
-    regroove_set_stereo_separation(mod, state->device_config.stereo_separation);
+    
     regroove_set_dither(mod, state->device_config.dither);
     regroove_set_amiga_resampler(mod, state->device_config.amiga_resampler);
     regroove_set_amiga_filter_type(mod, state->device_config.amiga_filter_type);
@@ -513,6 +513,10 @@ int regroove_common_load_module(RegrooveCommonState *state, const char *path,
                     regroove_process_commands(mod);
                     printf("Applied %d channel panning overrides from .rgx\n", pan_count);
                 }
+
+                // Apply stereo separation from metadata (default: 100)
+                regroove_set_stereo_separation(mod, state->metadata->stereo_separation);
+                printf("Applied stereo separation from .rgx: %d%%\n", state->metadata->stereo_separation);
 
                 // Load performance events from the same .rgx file
                 if (state->performance) {
