@@ -751,6 +751,17 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
                 uint8_t pattern = (uint8_t)(regroove_get_current_pattern(common_state->player) & 0x7F);
                 uint8_t total_rows = (uint8_t)(regroove_get_pattern_num_rows(common_state->player, pattern) & 0x7F);
 
+                // Get master volume (0.0-1.0 -> 0-127)
+                uint8_t master_vol = (uint8_t)(master_volume * 127.0f);
+                uint8_t master_mute_byte = master_mute ? 1 : 0;
+
+                // Get input states (0.0-1.0 -> 0-127)
+                uint8_t input_vol = (uint8_t)(input_volume * 127.0f);
+                uint8_t input_mute_byte = input_mute ? 1 : 0;
+
+                // Get FX routing (enum -> byte)
+                uint8_t fx_route_byte = (uint8_t)fx_route;
+
                 // Build bit-packed mute data
                 uint8_t mute_bits[16];  // Up to 127 channels = 16 bytes
                 memset(mute_bits, 0, sizeof(mute_bits));
@@ -762,11 +773,21 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
                     }
                 }
 
+                // Get channel volumes (0.0-1.0 -> 0-127)
+                uint8_t channel_volumes[127];
+                for (int i = 0; i < num_channels; i++) {
+                    double vol = regroove_get_channel_volume(common_state->player, i);
+                    channel_volumes[i] = (uint8_t)(vol * 127.0);
+                }
+
                 // Send response via MIDI output
                 uint8_t sysex_buffer[256];
                 size_t len = sysex_build_player_state_response(device_id, flags,
                                                                 order, row, pattern, total_rows,
-                                                                num_channels, mute_bits,
+                                                                num_channels, master_vol,
+                                                                master_mute_byte, input_vol,
+                                                                input_mute_byte, fx_route_byte,
+                                                                mute_bits, channel_volumes,
                                                                 sysex_buffer, sizeof(sysex_buffer));
                 if (len > 0) {
                     midi_output_send_sysex(sysex_buffer, len);
@@ -779,15 +800,22 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
         case SYSEX_CMD_PLAYER_STATE_RESPONSE: {
             // Received player state from another instance
             // Parse the state data for visualization/monitoring
-            uint8_t flags, order, row, pattern, total_rows, num_channels;
+            uint8_t flags, order, row, pattern, total_rows, num_channels, master_vol;
+            uint8_t master_mute_byte, input_vol, input_mute_byte, fx_route_byte;
             uint8_t mute_bits[16];
+            uint8_t channel_volumes[127];
 
             if (sysex_parse_player_state_response(data, data_len,
                                                    &flags, &order, &row, &pattern, &total_rows,
-                                                   &num_channels, mute_bits)) {
+                                                   &num_channels, &master_vol,
+                                                   &master_mute_byte, &input_vol,
+                                                   &input_mute_byte, &fx_route_byte,
+                                                   mute_bits, channel_volumes)) {
                 // Successfully parsed - could use this for visualization
                 // For now, just acknowledge receipt (no debug spam)
-                (void)flags; (void)order; (void)row; (void)pattern; (void)total_rows; (void)num_channels;
+                (void)flags; (void)order; (void)row; (void)pattern; (void)total_rows;
+                (void)num_channels; (void)master_vol;
+                (void)master_mute_byte; (void)input_vol; (void)input_mute_byte; (void)fx_route_byte;
             }
             break;
         }

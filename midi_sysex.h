@@ -179,8 +179,8 @@ size_t sysex_build_retrigger(uint8_t target_device_id, uint8_t *buffer, size_t b
 size_t sysex_build_get_player_state(uint8_t target_device_id, uint8_t *buffer, size_t buffer_size);
 
 // Build PLAYER_STATE_RESPONSE message
-// Sends complete player state data for visualization
-// Optimized format with bit-packing (supports up to 127 channels efficiently):
+// Sends complete player state data for visualization (Meister compatibility)
+// Format:
 //   - byte 0: playback flags
 //       bit 0: playing (0=stopped, 1=playing)
 //       bit 1-2: mode (00=song, 01=pattern/loop, 10=performance, 11=record)
@@ -190,34 +190,63 @@ size_t sysex_build_get_player_state(uint8_t target_device_id, uint8_t *buffer, s
 //   - byte 3: current pattern number (0-127)
 //   - byte 4: total rows in pattern (0-127)
 //   - byte 5: number of channels (1-127)
-//   - byte 6+: bit-packed channel mute states (ceil(num_channels/8) bytes)
-//       channel 0 = bit 0 of byte 6, channel 1 = bit 1 of byte 6, etc.
+//   - byte 6: master volume (0-127, where 127 = 100% = 1.0)
+//   - byte 7: mixer flags
+//       bit 0: master mute (0=unmuted, 1=muted)
+//       bit 1: input mute (0=unmuted, 1=muted)
+//       bits 2-7: reserved (set to 0)
+//   - byte 8: input volume (0-127, where 127 = 100% = 1.0)
+//   - byte 9: FX routing
+//       0=none, 1=master, 2=playback, 3=input
+//   - byte 10+: bit-packed channel mute states (ceil(num_channels/8) bytes)
+//       channel 0 = bit 0 of byte 10, channel 1 = bit 1 of byte 10, etc.
 //       1=muted, 0=unmuted
+//   - byte N+: channel volumes (num_channels bytes, each 0-127)
+//       one byte per channel, where 127 = 100% volume = 1.0
 //
 // Size examples:
-//   - 4 channels: 6 header + 1 mute = 7 bytes
-//   - 16 channels: 6 header + 2 mute = 8 bytes
-//   - 127 channels: 6 header + 16 mute = 22 bytes
+//   - 4 channels: 10 header + 1 mute + 4 vol = 15 bytes
+//   - 16 channels: 10 header + 2 mute + 16 vol = 28 bytes
+//   - 64 channels: 10 header + 8 mute + 64 vol = 82 bytes
 //
 // mute_bits: pointer to bit-packed mute states (ceil(num_channels/8) bytes)
+// channel_volumes: pointer to channel volume array (num_channels bytes, each 0-127)
+// master_volume: 0-127 (where 127 = 100% volume = 1.0)
+// master_mute: 0=unmuted, 1=muted
+// input_volume: 0-127 (where 127 = 100% = 1.0)
+// input_mute: 0=unmuted, 1=muted
+// fx_route: 0=none, 1=master, 2=playback, 3=input
 size_t sysex_build_player_state_response(uint8_t target_device_id,
                                           uint8_t playback_flags,
                                           uint8_t order, uint8_t row,
                                           uint8_t pattern, uint8_t total_rows,
                                           uint8_t num_channels,
+                                          uint8_t master_volume,
+                                          uint8_t master_mute,
+                                          uint8_t input_volume,
+                                          uint8_t input_mute,
+                                          uint8_t fx_route,
                                           const uint8_t *mute_bits,
+                                          const uint8_t *channel_volumes,
                                           uint8_t *buffer, size_t buffer_size);
 
 // Helper: Parse PLAYER_STATE_RESPONSE message
 // Returns 1 on success, 0 on failure
 // Extracts player state from a received PLAYER_STATE_RESPONSE message data payload
 // out_mute_bits must be allocated with at least ceil(num_channels/8) bytes
+// out_channel_volumes must be allocated with at least num_channels bytes
 int sysex_parse_player_state_response(const uint8_t *data, size_t data_len,
                                        uint8_t *out_playback_flags,
                                        uint8_t *out_order, uint8_t *out_row,
                                        uint8_t *out_pattern, uint8_t *out_total_rows,
                                        uint8_t *out_num_channels,
-                                       uint8_t *out_mute_bits);
+                                       uint8_t *out_master_volume,
+                                       uint8_t *out_master_mute,
+                                       uint8_t *out_input_volume,
+                                       uint8_t *out_input_mute,
+                                       uint8_t *out_fx_route,
+                                       uint8_t *out_mute_bits,
+                                       uint8_t *out_channel_volumes);
 
 // --- Helper Functions ---
 

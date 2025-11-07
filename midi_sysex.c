@@ -356,13 +356,19 @@ size_t sysex_build_player_state_response(uint8_t target_device_id,
                                           uint8_t order, uint8_t row,
                                           uint8_t pattern, uint8_t total_rows,
                                           uint8_t num_channels,
+                                          uint8_t master_volume,
+                                          uint8_t master_mute,
+                                          uint8_t input_volume,
+                                          uint8_t input_mute,
+                                          uint8_t fx_route,
                                           const uint8_t *mute_bits,
+                                          const uint8_t *channel_volumes,
                                           uint8_t *buffer, size_t buffer_size) {
-    if (!buffer || !mute_bits || num_channels == 0 || num_channels > 127) return 0;
+    if (!buffer || !mute_bits || !channel_volumes || num_channels == 0 || num_channels > 127) return 0;
 
-    // Calculate required size: F0 7D <dev> <cmd> <6 header bytes> <mute_bytes> F7
+    // Calculate required size: F0 7D <dev> <cmd> <10 header bytes> <mute_bytes> <num_channels vol bytes> F7
     size_t mute_bytes = (num_channels + 7) / 8;  // ceil(num_channels / 8)
-    size_t required = 5 + 6 + mute_bytes + 1;  // start + manufacturer + device + cmd + data + end
+    size_t required = 5 + 10 + mute_bytes + num_channels + 1;  // start + manufacturer + device + cmd + data + end
     if (buffer_size < required) return 0;
 
     size_t pos = 0;
@@ -378,10 +384,24 @@ size_t sysex_build_player_state_response(uint8_t target_device_id,
     buffer[pos++] = pattern & 0x7F;
     buffer[pos++] = total_rows & 0x7F;
     buffer[pos++] = num_channels & 0x7F;
+    buffer[pos++] = master_volume & 0x7F;
 
-    // Mute bits
+    // Mixer flags (byte 7)
+    uint8_t mixer_flags = 0;
+    if (master_mute) mixer_flags |= 0x01;  // bit 0: master mute
+    if (input_mute) mixer_flags |= 0x02;   // bit 1: input mute
+    buffer[pos++] = mixer_flags & 0x7F;
+
+    buffer[pos++] = input_volume & 0x7F;   // byte 8
+    buffer[pos++] = fx_route & 0x7F;       // byte 9
+
+    // Mute bits (byte 10+)
     memcpy(&buffer[pos], mute_bits, mute_bytes);
     pos += mute_bytes;
+
+    // Channel volumes
+    memcpy(&buffer[pos], channel_volumes, num_channels);
+    pos += num_channels;
 
     buffer[pos++] = SYSEX_END;
 
@@ -393,9 +413,15 @@ int sysex_parse_player_state_response(const uint8_t *data, size_t data_len,
                                        uint8_t *out_order, uint8_t *out_row,
                                        uint8_t *out_pattern, uint8_t *out_total_rows,
                                        uint8_t *out_num_channels,
-                                       uint8_t *out_mute_bits) {
-    // Minimum: 6 header bytes + at least 1 mute byte
-    if (!data || data_len < 7) return 0;
+                                       uint8_t *out_master_volume,
+                                       uint8_t *out_master_mute,
+                                       uint8_t *out_input_volume,
+                                       uint8_t *out_input_mute,
+                                       uint8_t *out_fx_route,
+                                       uint8_t *out_mute_bits,
+                                       uint8_t *out_channel_volumes) {
+    // Minimum: 10 header bytes + at least 1 mute byte + at least 1 channel volume
+    if (!data || data_len < 12) return 0;
 
     // Extract header
     if (out_playback_flags) *out_playback_flags = data[0];
@@ -407,13 +433,28 @@ int sysex_parse_player_state_response(const uint8_t *data, size_t data_len,
     uint8_t num_channels = data[5];
     if (out_num_channels) *out_num_channels = num_channels;
 
+    if (out_master_volume) *out_master_volume = data[6];
+
+    // Extract mixer flags (byte 7)
+    uint8_t mixer_flags = data[7];
+    if (out_master_mute) *out_master_mute = (mixer_flags & 0x01) ? 1 : 0;
+    if (out_input_mute) *out_input_mute = (mixer_flags & 0x02) ? 1 : 0;
+
+    if (out_input_volume) *out_input_volume = data[8];
+    if (out_fx_route) *out_fx_route = data[9];
+
     // Validate data length
     size_t mute_bytes = (num_channels + 7) / 8;
-    if (data_len < 6 + mute_bytes) return 0;
+    if (data_len < 10 + mute_bytes + num_channels) return 0;
 
-    // Extract mute bits
+    // Extract mute bits (byte 10+)
     if (out_mute_bits) {
-        memcpy(out_mute_bits, &data[6], mute_bytes);
+        memcpy(out_mute_bits, &data[10], mute_bytes);
+    }
+
+    // Extract channel volumes
+    if (out_channel_volumes) {
+        memcpy(out_channel_volumes, &data[10 + mute_bytes], num_channels);
     }
 
     return 1;
