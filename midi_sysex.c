@@ -470,14 +470,15 @@ size_t sysex_build_player_state_response(uint8_t target_device_id,
                                           uint8_t input_mute,
                                           uint8_t fx_route,
                                           uint8_t stereo_separation,
+                                          uint16_t bpm,
                                           const uint8_t *mute_bits,
                                           const uint8_t *channel_volumes,
                                           uint8_t *buffer, size_t buffer_size) {
     if (!buffer || !mute_bits || !channel_volumes || num_channels == 0 || num_channels > 127) return 0;
 
-    // Calculate required size: F0 7D <dev> <cmd> <11 header bytes> <mute_bytes> <num_channels vol bytes> F7
+    // Calculate required size: F0 7D <dev> <cmd> <13 header bytes> <mute_bytes> <num_channels vol bytes> F7
     size_t mute_bytes = (num_channels + 7) / 8;  // ceil(num_channels / 8)
-    size_t required = 5 + 11 + mute_bytes + num_channels + 1;  // start + manufacturer + device + cmd + data + end
+    size_t required = 5 + 13 + mute_bytes + num_channels + 1;  // start + manufacturer + device + cmd + data + end
     if (buffer_size < required) return 0;
 
     size_t pos = 0;
@@ -504,8 +505,10 @@ size_t sysex_build_player_state_response(uint8_t target_device_id,
     buffer[pos++] = input_volume & 0x7F;   // byte 8
     buffer[pos++] = fx_route & 0x7F;       // byte 9
     buffer[pos++] = stereo_separation & 0x7F;  // byte 10
+    buffer[pos++] = bpm & 0x7F;            // byte 11: BPM LSB
+    buffer[pos++] = (bpm >> 7) & 0x7F;     // byte 12: BPM MSB
 
-    // Mute bits (byte 11+)
+    // Mute bits (byte 13+)
     memcpy(&buffer[pos], mute_bits, mute_bytes);
     pos += mute_bytes;
 
@@ -529,10 +532,11 @@ int sysex_parse_player_state_response(const uint8_t *data, size_t data_len,
                                        uint8_t *out_input_mute,
                                        uint8_t *out_fx_route,
                                        uint8_t *out_stereo_separation,
+                                       uint16_t *out_bpm,
                                        uint8_t *out_mute_bits,
                                        uint8_t *out_channel_volumes) {
-    // Minimum: 11 header bytes + at least 1 mute byte + at least 1 channel volume
-    if (!data || data_len < 13) return 0;
+    // Minimum: 13 header bytes + at least 1 mute byte + at least 1 channel volume
+    if (!data || data_len < 15) return 0;
 
     // Extract header
     if (out_playback_flags) *out_playback_flags = data[0];
@@ -555,18 +559,25 @@ int sysex_parse_player_state_response(const uint8_t *data, size_t data_len,
     if (out_fx_route) *out_fx_route = data[9];
     if (out_stereo_separation) *out_stereo_separation = data[10];
 
+    // Extract BPM (bytes 11-12)
+    if (out_bpm) {
+        uint8_t bpm_lsb = data[11];
+        uint8_t bpm_msb = data[12];
+        *out_bpm = bpm_lsb | (bpm_msb << 7);
+    }
+
     // Validate data length
     size_t mute_bytes = (num_channels + 7) / 8;
-    if (data_len < 11 + mute_bytes + num_channels) return 0;
+    if (data_len < 13 + mute_bytes + num_channels) return 0;
 
-    // Extract mute bits (byte 11+)
+    // Extract mute bits (byte 13+)
     if (out_mute_bits) {
-        memcpy(out_mute_bits, &data[11], mute_bytes);
+        memcpy(out_mute_bits, &data[13], mute_bytes);
     }
 
     // Extract channel volumes
     if (out_channel_volumes) {
-        memcpy(out_channel_volumes, &data[11 + mute_bytes], num_channels);
+        memcpy(out_channel_volumes, &data[13 + mute_bytes], num_channels);
     }
 
     return 1;

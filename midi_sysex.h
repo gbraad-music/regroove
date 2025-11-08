@@ -245,16 +245,19 @@ size_t sysex_build_get_player_state(uint8_t target_device_id, uint8_t *buffer, s
 //   - byte 9: FX routing
 //       0=none, 1=master, 2=playback, 3=input
 //   - byte 10: stereo separation (0-127, maps to 0-200 where 64≈100=normal)
-//   - byte 11+: bit-packed channel mute states (ceil(num_channels/8) bytes)
-//       channel 0 = bit 0 of byte 11, channel 1 = bit 1 of byte 11, etc.
+//   - byte 11: BPM LSB (lower 7 bits)
+//   - byte 12: BPM MSB (upper 7 bits)
+//       BPM value = LSB | (MSB << 7), supports 0-16383 BPM
+//   - byte 13+: bit-packed channel mute states (ceil(num_channels/8) bytes)
+//       channel 0 = bit 0 of byte 13, channel 1 = bit 1 of byte 13, etc.
 //       1=muted, 0=unmuted
 //   - byte N+: channel volumes (num_channels bytes, each 0-127)
 //       one byte per channel, where 127 = 100% volume = 1.0
 //
 // Size examples:
-//   - 4 channels: 11 header + 1 mute + 4 vol = 16 bytes
-//   - 16 channels: 11 header + 2 mute + 16 vol = 29 bytes
-//   - 64 channels: 11 header + 8 mute + 64 vol = 83 bytes
+//   - 4 channels: 13 header + 1 mute + 4 vol = 18 bytes
+//   - 16 channels: 13 header + 2 mute + 16 vol = 31 bytes
+//   - 64 channels: 13 header + 8 mute + 64 vol = 85 bytes
 //
 // mute_bits: pointer to bit-packed mute states (ceil(num_channels/8) bytes)
 // channel_volumes: pointer to channel volume array (num_channels bytes, each 0-127)
@@ -274,6 +277,7 @@ size_t sysex_build_player_state_response(uint8_t target_device_id,
                                           uint8_t input_mute,
                                           uint8_t fx_route,
                                           uint8_t stereo_separation,
+                                          uint16_t bpm,
                                           const uint8_t *mute_bits,
                                           const uint8_t *channel_volumes,
                                           uint8_t *buffer, size_t buffer_size);
@@ -294,6 +298,7 @@ int sysex_parse_player_state_response(const uint8_t *data, size_t data_len,
                                        uint8_t *out_input_mute,
                                        uint8_t *out_fx_route,
                                        uint8_t *out_stereo_separation,
+                                       uint16_t *out_bpm,
                                        uint8_t *out_mute_bits,
                                        uint8_t *out_channel_volumes);
 

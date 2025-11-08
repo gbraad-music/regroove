@@ -792,6 +792,11 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
                 int stereo_sep = regroove_get_stereo_separation(common_state->player);
                 uint8_t stereo_sep_byte = (uint8_t)((stereo_sep * 127) / 200);
 
+                // Get BPM
+                double current_bpm = regroove_get_current_bpm(common_state->player);
+                uint16_t bpm = (uint16_t)(current_bpm + 0.5);  // Round to nearest integer
+                if (bpm > 16383) bpm = 16383;  // Clamp to 14-bit max
+
                 // Build bit-packed mute data
                 uint8_t mute_bits[16];  // Up to 127 channels = 16 bytes
                 memset(mute_bits, 0, sizeof(mute_bits));
@@ -817,7 +822,7 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
                                                                 num_channels, master_vol,
                                                                 master_mute_byte, input_vol,
                                                                 input_mute_byte, fx_route_byte,
-                                                                stereo_sep_byte,
+                                                                stereo_sep_byte, bpm,
                                                                 mute_bits, channel_volumes,
                                                                 sysex_buffer, sizeof(sysex_buffer));
                 if (len > 0) {
@@ -833,6 +838,7 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
             // Parse the state data for visualization/monitoring
             uint8_t flags, order, row, pattern, total_rows, num_channels, master_vol;
             uint8_t master_mute_byte, input_vol, input_mute_byte, fx_route_byte, stereo_sep_byte;
+            uint16_t bpm;
             uint8_t mute_bits[16];
             uint8_t channel_volumes[127];
 
@@ -841,14 +847,14 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
                                                    &num_channels, &master_vol,
                                                    &master_mute_byte, &input_vol,
                                                    &input_mute_byte, &fx_route_byte,
-                                                   &stereo_sep_byte,
+                                                   &stereo_sep_byte, &bpm,
                                                    mute_bits, channel_volumes)) {
                 // Successfully parsed - could use this for visualization
                 // For now, just acknowledge receipt (no debug spam)
                 (void)flags; (void)order; (void)row; (void)pattern; (void)total_rows;
                 (void)num_channels; (void)master_vol;
                 (void)master_mute_byte; (void)input_vol; (void)input_mute_byte; (void)fx_route_byte;
-                (void)stereo_sep_byte;
+                (void)stereo_sep_byte; (void)bpm;
             }
             break;
         }
