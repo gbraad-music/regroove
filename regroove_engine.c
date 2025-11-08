@@ -1373,6 +1373,18 @@ double regroove_get_current_bpm(const Regroove* g) {
     return openmpt_module_get_current_tempo2(g->mod);
 }
 
+double regroove_get_effective_bpm(const Regroove* g) {
+    if (!g || !g->mod) return 0.0;
+    // Get the base BPM from the module
+    double base_bpm = openmpt_module_get_current_tempo2(g->mod);
+    // Apply pitch adjustment: effective_bpm = base_bpm / pitch
+    // (Higher pitch = faster playback = lower effective BPM)
+    if (g->pitch_factor > 0.0) {
+        return base_bpm / g->pitch_factor;
+    }
+    return base_bpm;
+}
+
 int regroove_get_current_speed(const Regroove* g) {
     if (!g || !g->mod) return 6;  // Default to 6 ticks/row
     return openmpt_module_get_current_speed(g->mod);

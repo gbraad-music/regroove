@@ -122,7 +122,8 @@ int regroove_get_pattern_mode(const Regroove *g);
 int regroove_get_custom_loop_rows(const Regroove *g);
 int regroove_get_full_pattern_rows(const Regroove *g);
 int regroove_get_pattern_num_rows(const Regroove *g, int pattern);  // Get row count for specific pattern
-double regroove_get_current_bpm(const Regroove *g);
+double regroove_get_current_bpm(const Regroove *g);  // Get module's base BPM (before pitch adjustment)
+double regroove_get_effective_bpm(const Regroove *g);  // Get effective playback BPM (after pitch adjustment)
 int regroove_get_current_speed(const Regroove *g);  // Get current speed (ticks per row)
 
 // Get formatted pattern cell data (note, instrument, volume, effects)

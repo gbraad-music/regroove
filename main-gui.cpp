@@ -334,10 +334,7 @@ static void my_row_callback(int ord, int row, void *userdata) {
     // Update MIDI Clock BPM if master mode is enabled
     // (Actual clock pulses are sent from audio callback for precise timing)
     if (common_state && common_state->player && midi_output_is_clock_master()) {
-        double bpm = regroove_get_current_bpm(common_state->player);
-        double pitch = regroove_get_pitch(common_state->player);
-        // Lower pitch value = faster playback, so divide BPM by pitch
-        double effective_bpm = bpm / pitch;
+        double effective_bpm = regroove_get_effective_bpm(common_state->player);
         midi_output_update_clock(effective_bpm, (double)row);
     }
 
@@ -792,9 +789,9 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
                 int stereo_sep = regroove_get_stereo_separation(common_state->player);
                 uint8_t stereo_sep_byte = (uint8_t)((stereo_sep * 127) / 200);
 
-                // Get BPM
-                double current_bpm = regroove_get_current_bpm(common_state->player);
-                uint16_t bpm = (uint16_t)(current_bpm + 0.5);  // Round to nearest integer
+                // Get effective BPM (calculated in engine: base_bpm / pitch)
+                double effective_bpm = regroove_get_effective_bpm(common_state->player);
+                uint16_t bpm = (uint16_t)(effective_bpm + 0.5);  // Round to nearest integer
                 if (bpm > 16383) bpm = 16383;  // Clamp to 14-bit max
 
                 // Build bit-packed mute data
@@ -3511,13 +3508,7 @@ static void audio_callback(void *userdata, Uint8 *stream, int len) {
 
         // Send MIDI Clock pulses if master mode is enabled
         if (midi_output_is_clock_master()) {
-            double bpm = regroove_get_current_bpm(common_state->player);
-            double pitch = regroove_get_pitch(common_state->player);
-            // Note: pitch affects sample rate (samplerate * pitch_factor in regroove_engine.c)
-            // Lower pitch = libopenmpt renders at lower samplerate = faster playback = higher effective BPM
-            // Higher pitch = libopenmpt renders at higher samplerate = slower playback = lower effective BPM
-            // So we DIVIDE by pitch, not multiply
-            double effective_bpm = bpm / pitch;
+            double effective_bpm = regroove_get_effective_bpm(common_state->player);
 
             // Update BPM for clock thread (lock-free, non-blocking)
             // The dedicated clock thread will handle sending pulses with precise timing
@@ -3800,12 +3791,12 @@ static void ShowMainUI() {
                 file_disp = truncated;
             }
 
-            // Get BPM from engine and calculate effective BPM with pitch
+            // Get BPM from engine (base and effective)
             char bpm_str[32] = "---";
             if (common_state && common_state->player) {
                 double bpm = regroove_get_current_bpm(common_state->player);
                 double pitch = regroove_get_pitch(common_state->player);
-                double effective_bpm = bpm / pitch;
+                double effective_bpm = regroove_get_effective_bpm(common_state->player);
 
                 // Check for incoming MIDI Clock tempo (always displayed if present as a hint)
                 double midi_tempo = midi_get_clock_tempo();
