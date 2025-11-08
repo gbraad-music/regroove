@@ -686,14 +686,19 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
             if (data_len >= 2) {
                 uint8_t channel = data[0];
                 uint8_t mute = data[1];
-                (void)mute; // Mute is toggle action
                 printf("[SysEx] CHANNEL_MUTE: ch=%d, mute=%d\n", channel, mute);
-                if (channel < MAX_CHANNELS) {
-                    InputEvent event;
-                    event.action = ACTION_CHANNEL_MUTE;
-                    event.parameter = channel;
-                    event.value = 0;
-                    handle_input_event(&event, false);
+                if (channel < MAX_CHANNELS && common_state && common_state->player) {
+                    // Check current mute state and only toggle if it doesn't match desired state
+                    bool is_muted = regroove_is_channel_muted(common_state->player, channel);
+                    bool should_mute = (mute != 0);
+
+                    if (is_muted != should_mute) {
+                        InputEvent event;
+                        event.action = ACTION_CHANNEL_MUTE;
+                        event.parameter = channel;
+                        event.value = 0;
+                        handle_input_event(&event, false);
+                    }
                 }
             }
             break;
@@ -702,8 +707,13 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
         case SYSEX_CMD_CHANNEL_SOLO: {
             if (data_len >= 2) {
                 uint8_t channel = data[0];
-                printf("[SysEx] CHANNEL_SOLO: ch=%d\n", channel);
-                if (channel < MAX_CHANNELS) {
+                uint8_t solo = data[1];
+                printf("[SysEx] CHANNEL_SOLO: ch=%d, solo=%d\n", channel, solo);
+                if (channel < MAX_CHANNELS && common_state && common_state->player) {
+                    // Check current solo state and only toggle if it doesn't match desired state
+                    // Note: Solo state is tracked differently - a channel is soloed if all other channels are muted
+                    // For simplicity, we'll just trigger the solo toggle action
+                    // TODO: Implement proper solo state tracking if explicit set behavior is needed
                     InputEvent event;
                     event.action = ACTION_CHANNEL_SOLO;
                     event.parameter = channel;
@@ -832,6 +842,179 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
                 (void)flags; (void)order; (void)row; (void)pattern; (void)total_rows;
                 (void)num_channels; (void)master_vol;
                 (void)master_mute_byte; (void)input_vol; (void)input_mute_byte; (void)fx_route_byte;
+            }
+            break;
+        }
+
+        case SYSEX_CMD_CHANNEL_VOLUME: {
+            if (data_len >= 2) {
+                uint8_t channel = data[0];
+                uint8_t volume = data[1];
+                printf("[SysEx] CHANNEL_VOLUME: ch=%d, vol=%d\n", channel, volume);
+                if (channel < MAX_CHANNELS) {
+                    InputEvent event;
+                    event.action = ACTION_CHANNEL_VOLUME;
+                    event.parameter = channel;
+                    event.value = volume;  // 0-127 MIDI range
+                    handle_input_event(&event, false);
+                }
+            }
+            break;
+        }
+
+        case SYSEX_CMD_JUMP_TO_ORDER_ROW: {
+            if (data_len >= 2) {
+                uint8_t order = data[0];
+                uint8_t row = data[1];
+                printf("[SysEx] JUMP_TO_ORDER_ROW: order=%d, row=%d\n", order, row);
+                if (common_state && common_state->player) {
+                    regroove_jump_to_order(common_state->player, order);
+                    regroove_set_position_row(common_state->player, row);
+                }
+            }
+            break;
+        }
+
+        case SYSEX_CMD_JUMP_TO_PATTERN_ROW: {
+            if (data_len >= 2) {
+                uint8_t pattern = data[0];
+                uint8_t row = data[1];
+                printf("[SysEx] JUMP_TO_PATTERN_ROW: pattern=%d, row=%d\n", pattern, row);
+                if (common_state && common_state->player) {
+                    regroove_jump_to_pattern(common_state->player, pattern);
+                    regroove_set_position_row(common_state->player, row);
+                }
+            }
+            break;
+        }
+
+        case SYSEX_CMD_SET_LOOP_RANGE: {
+            if (data_len >= 4) {
+                uint8_t start_order = data[0];
+                uint8_t start_row = data[1];
+                uint8_t end_order = data[2];
+                uint8_t end_row = data[3];
+                printf("[SysEx] SET_LOOP_RANGE: start=%d:%d, end=%d:%d\n",
+                       start_order, start_row, end_order, end_row);
+                if (common_state && common_state->player) {
+                    regroove_set_loop_range(common_state->player,
+                                           start_order, start_row,
+                                           end_order, end_row);
+                }
+            }
+            break;
+        }
+
+        case SYSEX_CMD_SET_TEMPO: {
+            if (data_len >= 2) {
+                uint16_t desired_bpm = data[0] | ((uint16_t)data[1] << 7);  // LSB | MSB
+                printf("[SysEx] SET_TEMPO: desired_bpm=%d\n", desired_bpm);
+                if (common_state && common_state->player && desired_bpm > 0) {
+                    // Get module's current base tempo
+                    double module_bpm = regroove_get_current_bpm(common_state->player);
+                    if (module_bpm > 0.0) {
+                        // Calculate pitch to achieve desired BPM
+                        // effective_bpm = module_bpm / pitch, so pitch = module_bpm / desired_bpm
+                        double pitch = module_bpm / (double)desired_bpm;
+                        // Clamp pitch to reasonable range (0.05 to 2.0)
+                        if (pitch < 0.05) pitch = 0.05;
+                        if (pitch > 2.0) pitch = 2.0;
+                        regroove_set_pitch(common_state->player, pitch);
+                        printf("[SysEx] Set pitch=%.3f (module_bpm=%.1f, desired_bpm=%d)\n",
+                               pitch, module_bpm, desired_bpm);
+                    }
+                }
+            }
+            break;
+        }
+
+        case SYSEX_CMD_SET_LOOP_CURRENT: {
+            if (data_len >= 1) {
+                uint8_t enable = data[0];
+                printf("[SysEx] SET_LOOP_CURRENT: enable=%d\n", enable);
+                if (common_state && common_state->player) {
+                    bool current_mode = regroove_get_pattern_mode(common_state->player);
+                    // Only toggle if current state doesn't match desired state
+                    if ((enable && !current_mode) || (!enable && current_mode)) {
+                        InputEvent event;
+                        event.action = ACTION_PATTERN_MODE_TOGGLE;
+                        event.parameter = 0;
+                        event.value = 0;
+                        handle_input_event(&event, false);
+                    }
+                }
+            }
+            break;
+        }
+
+        case SYSEX_CMD_SET_LOOP_ORDER: {
+            if (data_len >= 1) {
+                uint8_t order_number = data[0];
+                printf("[SysEx] SET_LOOP_ORDER: order=%d\n", order_number);
+                if (common_state && common_state->player) {
+                    regroove_jump_to_order(common_state->player, order_number);
+                    // Enable pattern mode if not already enabled
+                    if (!regroove_get_pattern_mode(common_state->player)) {
+                        InputEvent event;
+                        event.action = ACTION_PATTERN_MODE_TOGGLE;
+                        event.parameter = 0;
+                        event.value = 0;
+                        handle_input_event(&event, false);
+                    }
+                }
+            }
+            break;
+        }
+
+        case SYSEX_CMD_SET_LOOP_PATTERN: {
+            if (data_len >= 1) {
+                uint8_t pattern_number = data[0];
+                printf("[SysEx] SET_LOOP_PATTERN: pattern=%d\n", pattern_number);
+                if (common_state && common_state->player) {
+                    regroove_jump_to_pattern(common_state->player, pattern_number);
+                    // Enable pattern mode if not already enabled
+                    if (!regroove_get_pattern_mode(common_state->player)) {
+                        InputEvent event;
+                        event.action = ACTION_PATTERN_MODE_TOGGLE;
+                        event.parameter = 0;
+                        event.value = 0;
+                        handle_input_event(&event, false);
+                    }
+                }
+            }
+            break;
+        }
+
+        case SYSEX_CMD_TRIGGER_PHRASE: {
+            if (data_len >= 1) {
+                uint8_t phrase_index = data[0];
+                printf("[SysEx] TRIGGER_PHRASE: index=%d\n", phrase_index);
+                // TODO: Implement phrase triggering when phrase system is added
+            }
+            break;
+        }
+
+        case SYSEX_CMD_TRIGGER_LOOP: {
+            if (data_len >= 1) {
+                uint8_t loop_index = data[0];
+                printf("[SysEx] TRIGGER_LOOP: index=%d\n", loop_index);
+                // TODO: Implement saved loop triggering when loop save system is added
+            }
+            break;
+        }
+
+        case SYSEX_CMD_TRIGGER_PAD: {
+            if (data_len >= 1) {
+                uint8_t pad_index = data[0];
+                printf("[SysEx] TRIGGER_PAD: index=%d\n", pad_index);
+                if (common_state && common_state->performance) {
+                    // Trigger performance pad
+                    InputEvent event;
+                    event.action = ACTION_TRIGGER_PAD;
+                    event.parameter = pad_index;
+                    event.value = 0;
+                    handle_input_event(&event, false);
+                }
             }
             break;
         }
