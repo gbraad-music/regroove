@@ -146,6 +146,30 @@ size_t sysex_build_retrigger(uint8_t target_device_id, uint8_t *buffer, size_t b
     return 5;
 }
 
+size_t sysex_build_next_order(uint8_t target_device_id, uint8_t *buffer, size_t buffer_size) {
+    if (!buffer || buffer_size < 5) return 0;
+
+    buffer[0] = SYSEX_START;
+    buffer[1] = SYSEX_MANUFACTURER_ID;
+    buffer[2] = target_device_id & 0x7F;
+    buffer[3] = SYSEX_CMD_NEXT_ORDER;
+    buffer[4] = SYSEX_END;
+
+    return 5;
+}
+
+size_t sysex_build_prev_order(uint8_t target_device_id, uint8_t *buffer, size_t buffer_size) {
+    if (!buffer || buffer_size < 5) return 0;
+
+    buffer[0] = SYSEX_START;
+    buffer[1] = SYSEX_MANUFACTURER_ID;
+    buffer[2] = target_device_id & 0x7F;
+    buffer[3] = SYSEX_CMD_PREV_ORDER;
+    buffer[4] = SYSEX_END;
+
+    return 5;
+}
+
 size_t sysex_build_channel_mute(uint8_t target_device_id, uint8_t channel, uint8_t mute,
                                  uint8_t *buffer, size_t buffer_size) {
     if (!buffer || buffer_size < 7) return 0;
@@ -470,6 +494,8 @@ const char* sysex_command_name(SysExCommand cmd) {
         case SYSEX_CMD_STOP:           return "STOP";
         case SYSEX_CMD_PAUSE:          return "PAUSE";
         case SYSEX_CMD_RETRIGGER:      return "RETRIGGER";
+        case SYSEX_CMD_NEXT_ORDER:     return "NEXT_ORDER";
+        case SYSEX_CMD_PREV_ORDER:     return "PREV_ORDER";
         case SYSEX_CMD_CHANNEL_MUTE:        return "CHANNEL_MUTE";
         case SYSEX_CMD_CHANNEL_SOLO:        return "CHANNEL_SOLO";
         case SYSEX_CMD_CHANNEL_VOLUME:      return "CHANNEL_VOLUME";

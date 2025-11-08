@@ -724,6 +724,22 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
             break;
         }
 
+        case SYSEX_CMD_NEXT_ORDER: {
+            printf("[SysEx] NEXT_ORDER command received\n");
+            if (common_state && common_state->player) {
+                regroove_queue_next_order(common_state->player);
+            }
+            break;
+        }
+
+        case SYSEX_CMD_PREV_ORDER: {
+            printf("[SysEx] PREV_ORDER command received\n");
+            if (common_state && common_state->player) {
+                regroove_queue_prev_order(common_state->player);
+            }
+            break;
+        }
+
         case SYSEX_CMD_GET_PLAYER_STATE: {
             // Build optimized player state data and send response
             if (common_state && common_state->player) {

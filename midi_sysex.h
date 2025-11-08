@@ -33,6 +33,8 @@ typedef enum {
     SYSEX_CMD_STOP              = 0x21,  // Stop playback
     SYSEX_CMD_PAUSE             = 0x22,  // Pause/Continue
     SYSEX_CMD_RETRIGGER         = 0x23,  // Retrigger current pattern
+    SYSEX_CMD_NEXT_ORDER        = 0x24,  // Queue next order (beat-synced)
+    SYSEX_CMD_PREV_ORDER        = 0x25,  // Queue previous order (beat-synced)
     SYSEX_CMD_CHANNEL_MUTE      = 0x30,  // Mute/unmute channel
     SYSEX_CMD_CHANNEL_SOLO      = 0x31,  // Solo/unsolo channel
     SYSEX_CMD_CHANNEL_VOLUME    = 0x32,  // Set channel volume
@@ -173,6 +175,14 @@ size_t sysex_build_trigger_pad(uint8_t target_device_id, uint8_t pad_index,
 // Build RETRIGGER message
 // Retriggers the current pattern from the beginning
 size_t sysex_build_retrigger(uint8_t target_device_id, uint8_t *buffer, size_t buffer_size);
+
+// Build NEXT_ORDER message
+// Queue jump to next order (beat-synced)
+size_t sysex_build_next_order(uint8_t target_device_id, uint8_t *buffer, size_t buffer_size);
+
+// Build PREV_ORDER message
+// Queue jump to previous order (beat-synced)
+size_t sysex_build_prev_order(uint8_t target_device_id, uint8_t *buffer, size_t buffer_size);
 
 // Build GET_PLAYER_STATE message
 // Requests complete player state for visualization
