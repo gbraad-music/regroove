@@ -38,6 +38,12 @@ typedef enum {
     SYSEX_CMD_CHANNEL_MUTE      = 0x30,  // Mute/unmute channel
     SYSEX_CMD_CHANNEL_SOLO      = 0x31,  // Solo/unsolo channel
     SYSEX_CMD_CHANNEL_VOLUME    = 0x32,  // Set channel volume
+    SYSEX_CMD_MASTER_VOLUME     = 0x33,  // Set master volume
+    SYSEX_CMD_MASTER_MUTE       = 0x34,  // Set master mute
+    SYSEX_CMD_INPUT_VOLUME      = 0x35,  // Set input volume
+    SYSEX_CMD_INPUT_MUTE        = 0x36,  // Set input mute
+    SYSEX_CMD_FX_SET_ROUTE      = 0x37,  // Set FX routing (0=none, 1=master, 2=playback, 3=input)
+    SYSEX_CMD_STEREO_SEPARATION = 0x57,  // Set stereo separation (0-200, where 100=normal)
     // Position/playback control
     SYSEX_CMD_JUMP_TO_ORDER_ROW   = 0x40,  // Jump to order + row (immediate)
     SYSEX_CMD_JUMP_TO_PATTERN_ROW = 0x46,  // Jump to pattern + row (immediate)
@@ -115,6 +121,36 @@ size_t sysex_build_channel_solo(uint8_t target_device_id, uint8_t channel, uint8
 // volume: volume level (0-127)
 size_t sysex_build_channel_volume(uint8_t target_device_id, uint8_t channel, uint8_t volume,
                                    uint8_t *buffer, size_t buffer_size);
+
+// Build MASTER_VOLUME message
+// volume: master volume level (0-127)
+size_t sysex_build_master_volume(uint8_t target_device_id, uint8_t volume,
+                                  uint8_t *buffer, size_t buffer_size);
+
+// Build MASTER_MUTE message
+// mute: 1 = mute, 0 = unmute
+size_t sysex_build_master_mute(uint8_t target_device_id, uint8_t mute,
+                                uint8_t *buffer, size_t buffer_size);
+
+// Build INPUT_VOLUME message
+// volume: input volume level (0-127)
+size_t sysex_build_input_volume(uint8_t target_device_id, uint8_t volume,
+                                 uint8_t *buffer, size_t buffer_size);
+
+// Build INPUT_MUTE message
+// mute: 1 = mute, 0 = unmute
+size_t sysex_build_input_mute(uint8_t target_device_id, uint8_t mute,
+                               uint8_t *buffer, size_t buffer_size);
+
+// Build FX_SET_ROUTE message
+// route: FX routing (0=none, 1=master, 2=playback, 3=input)
+size_t sysex_build_fx_set_route(uint8_t target_device_id, uint8_t route,
+                                 uint8_t *buffer, size_t buffer_size);
+
+// Build STEREO_SEPARATION message
+// separation: stereo separation (0-200, where 0=mono, 100=normal, 200=wide)
+size_t sysex_build_stereo_separation(uint8_t target_device_id, uint8_t separation,
+                                      uint8_t *buffer, size_t buffer_size);
 
 // Build JUMP_TO_ORDER_ROW message
 // order: pattern order number (0-255)
@@ -208,16 +244,17 @@ size_t sysex_build_get_player_state(uint8_t target_device_id, uint8_t *buffer, s
 //   - byte 8: input volume (0-127, where 127 = 100% = 1.0)
 //   - byte 9: FX routing
 //       0=none, 1=master, 2=playback, 3=input
-//   - byte 10+: bit-packed channel mute states (ceil(num_channels/8) bytes)
-//       channel 0 = bit 0 of byte 10, channel 1 = bit 1 of byte 10, etc.
+//   - byte 10: stereo separation (0-127, maps to 0-200 where 64≈100=normal)
+//   - byte 11+: bit-packed channel mute states (ceil(num_channels/8) bytes)
+//       channel 0 = bit 0 of byte 11, channel 1 = bit 1 of byte 11, etc.
 //       1=muted, 0=unmuted
 //   - byte N+: channel volumes (num_channels bytes, each 0-127)
 //       one byte per channel, where 127 = 100% volume = 1.0
 //
 // Size examples:
-//   - 4 channels: 10 header + 1 mute + 4 vol = 15 bytes
-//   - 16 channels: 10 header + 2 mute + 16 vol = 28 bytes
-//   - 64 channels: 10 header + 8 mute + 64 vol = 82 bytes
+//   - 4 channels: 11 header + 1 mute + 4 vol = 16 bytes
+//   - 16 channels: 11 header + 2 mute + 16 vol = 29 bytes
+//   - 64 channels: 11 header + 8 mute + 64 vol = 83 bytes
 //
 // mute_bits: pointer to bit-packed mute states (ceil(num_channels/8) bytes)
 // channel_volumes: pointer to channel volume array (num_channels bytes, each 0-127)
@@ -236,6 +273,7 @@ size_t sysex_build_player_state_response(uint8_t target_device_id,
                                           uint8_t input_volume,
                                           uint8_t input_mute,
                                           uint8_t fx_route,
+                                          uint8_t stereo_separation,
                                           const uint8_t *mute_bits,
                                           const uint8_t *channel_volumes,
                                           uint8_t *buffer, size_t buffer_size);
@@ -255,6 +293,7 @@ int sysex_parse_player_state_response(const uint8_t *data, size_t data_len,
                                        uint8_t *out_input_volume,
                                        uint8_t *out_input_mute,
                                        uint8_t *out_fx_route,
+                                       uint8_t *out_stereo_separation,
                                        uint8_t *out_mute_bits,
                                        uint8_t *out_channel_volumes);
 

@@ -788,6 +788,10 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
                 // Get FX routing (enum -> byte)
                 uint8_t fx_route_byte = (uint8_t)fx_route;
 
+                // Get stereo separation (0-200 -> 0-127)
+                int stereo_sep = regroove_get_stereo_separation(common_state->player);
+                uint8_t stereo_sep_byte = (uint8_t)((stereo_sep * 127) / 200);
+
                 // Build bit-packed mute data
                 uint8_t mute_bits[16];  // Up to 127 channels = 16 bytes
                 memset(mute_bits, 0, sizeof(mute_bits));
@@ -813,6 +817,7 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
                                                                 num_channels, master_vol,
                                                                 master_mute_byte, input_vol,
                                                                 input_mute_byte, fx_route_byte,
+                                                                stereo_sep_byte,
                                                                 mute_bits, channel_volumes,
                                                                 sysex_buffer, sizeof(sysex_buffer));
                 if (len > 0) {
@@ -827,7 +832,7 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
             // Received player state from another instance
             // Parse the state data for visualization/monitoring
             uint8_t flags, order, row, pattern, total_rows, num_channels, master_vol;
-            uint8_t master_mute_byte, input_vol, input_mute_byte, fx_route_byte;
+            uint8_t master_mute_byte, input_vol, input_mute_byte, fx_route_byte, stereo_sep_byte;
             uint8_t mute_bits[16];
             uint8_t channel_volumes[127];
 
@@ -836,12 +841,14 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
                                                    &num_channels, &master_vol,
                                                    &master_mute_byte, &input_vol,
                                                    &input_mute_byte, &fx_route_byte,
+                                                   &stereo_sep_byte,
                                                    mute_bits, channel_volumes)) {
                 // Successfully parsed - could use this for visualization
                 // For now, just acknowledge receipt (no debug spam)
                 (void)flags; (void)order; (void)row; (void)pattern; (void)total_rows;
                 (void)num_channels; (void)master_vol;
                 (void)master_mute_byte; (void)input_vol; (void)input_mute_byte; (void)fx_route_byte;
+                (void)stereo_sep_byte;
             }
             break;
         }
@@ -857,6 +864,73 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
                     event.parameter = channel;
                     event.value = volume;  // 0-127 MIDI range
                     handle_input_event(&event, false);
+                }
+            }
+            break;
+        }
+
+        case SYSEX_CMD_MASTER_VOLUME: {
+            if (data_len >= 1) {
+                uint8_t volume = data[0];
+                printf("[SysEx] MASTER_VOLUME: vol=%d\n", volume);
+                // Convert MIDI 0-127 to 0.0-1.0
+                master_volume = volume / 127.0f;
+                if (master_volume < 0.0f) master_volume = 0.0f;
+                if (master_volume > 1.0f) master_volume = 1.0f;
+            }
+            break;
+        }
+
+        case SYSEX_CMD_MASTER_MUTE: {
+            if (data_len >= 1) {
+                uint8_t mute = data[0];
+                printf("[SysEx] MASTER_MUTE: mute=%d\n", mute);
+                master_mute = (mute != 0);
+            }
+            break;
+        }
+
+        case SYSEX_CMD_INPUT_VOLUME: {
+            if (data_len >= 1) {
+                uint8_t volume = data[0];
+                printf("[SysEx] INPUT_VOLUME: vol=%d\n", volume);
+                // Convert MIDI 0-127 to 0.0-1.0
+                input_volume = volume / 127.0f;
+                if (input_volume < 0.0f) input_volume = 0.0f;
+                if (input_volume > 1.0f) input_volume = 1.0f;
+            }
+            break;
+        }
+
+        case SYSEX_CMD_INPUT_MUTE: {
+            if (data_len >= 1) {
+                uint8_t mute = data[0];
+                printf("[SysEx] INPUT_MUTE: mute=%d\n", mute);
+                input_mute = (mute != 0);
+            }
+            break;
+        }
+
+        case SYSEX_CMD_FX_SET_ROUTE: {
+            if (data_len >= 1) {
+                uint8_t route = data[0];
+                printf("[SysEx] FX_SET_ROUTE: route=%d\n", route);
+                // Validate route (0-3)
+                if (route <= 3) {
+                    fx_route = (FXRoute)route;
+                }
+            }
+            break;
+        }
+
+        case SYSEX_CMD_STEREO_SEPARATION: {
+            if (data_len >= 1) {
+                uint8_t separation_midi = data[0];  // 0-127
+                // Map 0-127 to 0-200
+                int separation = (separation_midi * 200) / 127;
+                printf("[SysEx] STEREO_SEPARATION: %d (MIDI: %d)\n", separation, separation_midi);
+                if (common_state && common_state->player) {
+                    regroove_set_stereo_separation(common_state->player, separation);
                 }
             }
             break;

@@ -215,6 +215,90 @@ size_t sysex_build_channel_volume(uint8_t target_device_id, uint8_t channel, uin
     return 7;
 }
 
+size_t sysex_build_master_volume(uint8_t target_device_id, uint8_t volume,
+                                  uint8_t *buffer, size_t buffer_size) {
+    if (!buffer || buffer_size < 6) return 0;
+
+    buffer[0] = SYSEX_START;
+    buffer[1] = SYSEX_MANUFACTURER_ID;
+    buffer[2] = target_device_id & 0x7F;
+    buffer[3] = SYSEX_CMD_MASTER_VOLUME;
+    buffer[4] = volume & 0x7F;
+    buffer[5] = SYSEX_END;
+
+    return 6;
+}
+
+size_t sysex_build_master_mute(uint8_t target_device_id, uint8_t mute,
+                                uint8_t *buffer, size_t buffer_size) {
+    if (!buffer || buffer_size < 6) return 0;
+
+    buffer[0] = SYSEX_START;
+    buffer[1] = SYSEX_MANUFACTURER_ID;
+    buffer[2] = target_device_id & 0x7F;
+    buffer[3] = SYSEX_CMD_MASTER_MUTE;
+    buffer[4] = mute ? 1 : 0;
+    buffer[5] = SYSEX_END;
+
+    return 6;
+}
+
+size_t sysex_build_input_volume(uint8_t target_device_id, uint8_t volume,
+                                 uint8_t *buffer, size_t buffer_size) {
+    if (!buffer || buffer_size < 6) return 0;
+
+    buffer[0] = SYSEX_START;
+    buffer[1] = SYSEX_MANUFACTURER_ID;
+    buffer[2] = target_device_id & 0x7F;
+    buffer[3] = SYSEX_CMD_INPUT_VOLUME;
+    buffer[4] = volume & 0x7F;
+    buffer[5] = SYSEX_END;
+
+    return 6;
+}
+
+size_t sysex_build_input_mute(uint8_t target_device_id, uint8_t mute,
+                               uint8_t *buffer, size_t buffer_size) {
+    if (!buffer || buffer_size < 6) return 0;
+
+    buffer[0] = SYSEX_START;
+    buffer[1] = SYSEX_MANUFACTURER_ID;
+    buffer[2] = target_device_id & 0x7F;
+    buffer[3] = SYSEX_CMD_INPUT_MUTE;
+    buffer[4] = mute ? 1 : 0;
+    buffer[5] = SYSEX_END;
+
+    return 6;
+}
+
+size_t sysex_build_fx_set_route(uint8_t target_device_id, uint8_t route,
+                                 uint8_t *buffer, size_t buffer_size) {
+    if (!buffer || buffer_size < 6) return 0;
+
+    buffer[0] = SYSEX_START;
+    buffer[1] = SYSEX_MANUFACTURER_ID;
+    buffer[2] = target_device_id & 0x7F;
+    buffer[3] = SYSEX_CMD_FX_SET_ROUTE;
+    buffer[4] = route & 0x03;  // 0-3 only
+    buffer[5] = SYSEX_END;
+
+    return 6;
+}
+
+size_t sysex_build_stereo_separation(uint8_t target_device_id, uint8_t separation,
+                                      uint8_t *buffer, size_t buffer_size) {
+    if (!buffer || buffer_size < 6) return 0;
+
+    buffer[0] = SYSEX_START;
+    buffer[1] = SYSEX_MANUFACTURER_ID;
+    buffer[2] = target_device_id & 0x7F;
+    buffer[3] = SYSEX_CMD_STEREO_SEPARATION;
+    buffer[4] = separation & 0x7F;  // 0-127, maps to 0-200 (multiply by 200/127)
+    buffer[5] = SYSEX_END;
+
+    return 6;
+}
+
 size_t sysex_build_jump_to_order_row(uint8_t target_device_id, uint8_t order, uint8_t row,
                                       uint8_t *buffer, size_t buffer_size) {
     if (!buffer || buffer_size < 7) return 0;
@@ -385,14 +469,15 @@ size_t sysex_build_player_state_response(uint8_t target_device_id,
                                           uint8_t input_volume,
                                           uint8_t input_mute,
                                           uint8_t fx_route,
+                                          uint8_t stereo_separation,
                                           const uint8_t *mute_bits,
                                           const uint8_t *channel_volumes,
                                           uint8_t *buffer, size_t buffer_size) {
     if (!buffer || !mute_bits || !channel_volumes || num_channels == 0 || num_channels > 127) return 0;
 
-    // Calculate required size: F0 7D <dev> <cmd> <10 header bytes> <mute_bytes> <num_channels vol bytes> F7
+    // Calculate required size: F0 7D <dev> <cmd> <11 header bytes> <mute_bytes> <num_channels vol bytes> F7
     size_t mute_bytes = (num_channels + 7) / 8;  // ceil(num_channels / 8)
-    size_t required = 5 + 10 + mute_bytes + num_channels + 1;  // start + manufacturer + device + cmd + data + end
+    size_t required = 5 + 11 + mute_bytes + num_channels + 1;  // start + manufacturer + device + cmd + data + end
     if (buffer_size < required) return 0;
 
     size_t pos = 0;
@@ -418,8 +503,9 @@ size_t sysex_build_player_state_response(uint8_t target_device_id,
 
     buffer[pos++] = input_volume & 0x7F;   // byte 8
     buffer[pos++] = fx_route & 0x7F;       // byte 9
+    buffer[pos++] = stereo_separation & 0x7F;  // byte 10
 
-    // Mute bits (byte 10+)
+    // Mute bits (byte 11+)
     memcpy(&buffer[pos], mute_bits, mute_bytes);
     pos += mute_bytes;
 
@@ -442,10 +528,11 @@ int sysex_parse_player_state_response(const uint8_t *data, size_t data_len,
                                        uint8_t *out_input_volume,
                                        uint8_t *out_input_mute,
                                        uint8_t *out_fx_route,
+                                       uint8_t *out_stereo_separation,
                                        uint8_t *out_mute_bits,
                                        uint8_t *out_channel_volumes) {
-    // Minimum: 10 header bytes + at least 1 mute byte + at least 1 channel volume
-    if (!data || data_len < 12) return 0;
+    // Minimum: 11 header bytes + at least 1 mute byte + at least 1 channel volume
+    if (!data || data_len < 13) return 0;
 
     // Extract header
     if (out_playback_flags) *out_playback_flags = data[0];
@@ -466,19 +553,20 @@ int sysex_parse_player_state_response(const uint8_t *data, size_t data_len,
 
     if (out_input_volume) *out_input_volume = data[8];
     if (out_fx_route) *out_fx_route = data[9];
+    if (out_stereo_separation) *out_stereo_separation = data[10];
 
     // Validate data length
     size_t mute_bytes = (num_channels + 7) / 8;
-    if (data_len < 10 + mute_bytes + num_channels) return 0;
+    if (data_len < 11 + mute_bytes + num_channels) return 0;
 
-    // Extract mute bits (byte 10+)
+    // Extract mute bits (byte 11+)
     if (out_mute_bits) {
-        memcpy(out_mute_bits, &data[10], mute_bytes);
+        memcpy(out_mute_bits, &data[11], mute_bytes);
     }
 
     // Extract channel volumes
     if (out_channel_volumes) {
-        memcpy(out_channel_volumes, &data[10 + mute_bytes], num_channels);
+        memcpy(out_channel_volumes, &data[11 + mute_bytes], num_channels);
     }
 
     return 1;
@@ -499,6 +587,12 @@ const char* sysex_command_name(SysExCommand cmd) {
         case SYSEX_CMD_CHANNEL_MUTE:        return "CHANNEL_MUTE";
         case SYSEX_CMD_CHANNEL_SOLO:        return "CHANNEL_SOLO";
         case SYSEX_CMD_CHANNEL_VOLUME:      return "CHANNEL_VOLUME";
+        case SYSEX_CMD_MASTER_VOLUME:       return "MASTER_VOLUME";
+        case SYSEX_CMD_MASTER_MUTE:         return "MASTER_MUTE";
+        case SYSEX_CMD_INPUT_VOLUME:        return "INPUT_VOLUME";
+        case SYSEX_CMD_INPUT_MUTE:          return "INPUT_MUTE";
+        case SYSEX_CMD_FX_SET_ROUTE:        return "FX_SET_ROUTE";
+        case SYSEX_CMD_STEREO_SEPARATION:   return "STEREO_SEPARATION";
         case SYSEX_CMD_JUMP_TO_ORDER_ROW:   return "JUMP_TO_ORDER_ROW";
         case SYSEX_CMD_JUMP_TO_PATTERN_ROW: return "JUMP_TO_PATTERN_ROW";
         case SYSEX_CMD_SET_LOOP_RANGE:      return "SET_LOOP_RANGE";
