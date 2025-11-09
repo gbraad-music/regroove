@@ -805,6 +805,10 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
                     }
                 }
 
+                // Get master and input panning (0.0-1.0 -> 0-127)
+                uint8_t master_pan_byte = (uint8_t)(master_pan * 127.0f);
+                uint8_t input_pan_byte = (uint8_t)(input_pan * 127.0f);
+
                 // Get channel volumes (0.0-1.0 -> 0-127)
                 uint8_t channel_volumes[127];
                 for (int i = 0; i < num_channels; i++) {
@@ -812,15 +816,23 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
                     channel_volumes[i] = (uint8_t)(vol * 127.0);
                 }
 
+                // Get channel panning (0.0-1.0 -> 0-127)
+                uint8_t channel_panning[127];
+                for (int i = 0; i < num_channels; i++) {
+                    double pan = regroove_get_channel_panning(common_state->player, i);
+                    channel_panning[i] = (uint8_t)(pan * 127.0);
+                }
+
                 // Send response via MIDI output
-                uint8_t sysex_buffer[256];
+                uint8_t sysex_buffer[512];  // Increased size for panning data
                 size_t len = sysex_build_player_state_response(device_id, flags,
                                                                 order, row, pattern, total_rows,
                                                                 num_channels, master_vol,
                                                                 master_mute_byte, input_vol,
                                                                 input_mute_byte, fx_route_byte,
                                                                 stereo_sep_byte, bpm,
-                                                                mute_bits, channel_volumes,
+                                                                master_pan_byte, input_pan_byte,
+                                                                mute_bits, channel_volumes, channel_panning,
                                                                 sysex_buffer, sizeof(sysex_buffer));
                 if (len > 0) {
                     midi_output_send_sysex(sysex_buffer, len);
@@ -835,9 +847,11 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
             // Parse the state data for visualization/monitoring
             uint8_t flags, order, row, pattern, total_rows, num_channels, master_vol;
             uint8_t master_mute_byte, input_vol, input_mute_byte, fx_route_byte, stereo_sep_byte;
+            uint8_t master_pan_byte, input_pan_byte;
             uint16_t bpm;
             uint8_t mute_bits[16];
             uint8_t channel_volumes[127];
+            uint8_t channel_panning[127];
 
             if (sysex_parse_player_state_response(data, data_len,
                                                    &flags, &order, &row, &pattern, &total_rows,
@@ -845,13 +859,15 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
                                                    &master_mute_byte, &input_vol,
                                                    &input_mute_byte, &fx_route_byte,
                                                    &stereo_sep_byte, &bpm,
-                                                   mute_bits, channel_volumes)) {
+                                                   &master_pan_byte, &input_pan_byte,
+                                                   mute_bits, channel_volumes, channel_panning)) {
                 // Successfully parsed - could use this for visualization
                 // For now, just acknowledge receipt (no debug spam)
                 (void)flags; (void)order; (void)row; (void)pattern; (void)total_rows;
                 (void)num_channels; (void)master_vol;
                 (void)master_mute_byte; (void)input_vol; (void)input_mute_byte; (void)fx_route_byte;
                 (void)stereo_sep_byte; (void)bpm;
+                (void)master_pan_byte; (void)input_pan_byte;
             }
             break;
         }
@@ -935,6 +951,44 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
                 if (common_state && common_state->player) {
                     regroove_set_stereo_separation(common_state->player, separation);
                 }
+            }
+            break;
+        }
+
+        case SYSEX_CMD_CHANNEL_PANNING: {
+            if (data_len >= 2) {
+                uint8_t channel = data[0];
+                uint8_t panning_midi = data[1];  // 0-127
+                printf("[SysEx] CHANNEL_PANNING: ch=%d, pan=%d\n", channel, panning_midi);
+                if (common_state && common_state->player && channel < MAX_CHANNELS) {
+                    // Convert MIDI 0-127 to 0.0-1.0
+                    double pan = panning_midi / 127.0;
+                    regroove_set_channel_panning(common_state->player, channel, pan);
+                }
+            }
+            break;
+        }
+
+        case SYSEX_CMD_MASTER_PANNING: {
+            if (data_len >= 1) {
+                uint8_t panning_midi = data[0];  // 0-127
+                printf("[SysEx] MASTER_PANNING: pan=%d\n", panning_midi);
+                // Convert MIDI 0-127 to 0.0-1.0
+                master_pan = panning_midi / 127.0f;
+                if (master_pan < 0.0f) master_pan = 0.0f;
+                if (master_pan > 1.0f) master_pan = 1.0f;
+            }
+            break;
+        }
+
+        case SYSEX_CMD_INPUT_PANNING: {
+            if (data_len >= 1) {
+                uint8_t panning_midi = data[0];  // 0-127
+                printf("[SysEx] INPUT_PANNING: pan=%d\n", panning_midi);
+                // Convert MIDI 0-127 to 0.0-1.0
+                input_pan = panning_midi / 127.0f;
+                if (input_pan < 0.0f) input_pan = 0.0f;
+                if (input_pan > 1.0f) input_pan = 1.0f;
             }
             break;
         }

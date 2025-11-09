@@ -471,14 +471,17 @@ size_t sysex_build_player_state_response(uint8_t target_device_id,
                                           uint8_t fx_route,
                                           uint8_t stereo_separation,
                                           uint16_t bpm,
+                                          uint8_t master_pan,
+                                          uint8_t input_pan,
                                           const uint8_t *mute_bits,
                                           const uint8_t *channel_volumes,
+                                          const uint8_t *channel_panning,
                                           uint8_t *buffer, size_t buffer_size) {
-    if (!buffer || !mute_bits || !channel_volumes || num_channels == 0 || num_channels > 127) return 0;
+    if (!buffer || !mute_bits || !channel_volumes || !channel_panning || num_channels == 0 || num_channels > 127) return 0;
 
-    // Calculate required size: F0 7D <dev> <cmd> <13 header bytes> <mute_bytes> <num_channels vol bytes> F7
+    // Calculate required size: F0 7D <dev> <cmd> <15 header bytes> <mute_bytes> <num_channels vol bytes> <num_channels pan bytes> F7
     size_t mute_bytes = (num_channels + 7) / 8;  // ceil(num_channels / 8)
-    size_t required = 5 + 13 + mute_bytes + num_channels + 1;  // start + manufacturer + device + cmd + data + end
+    size_t required = 5 + 15 + mute_bytes + num_channels + num_channels + 1;  // start + manufacturer + device + cmd + data + end
     if (buffer_size < required) return 0;
 
     size_t pos = 0;
@@ -507,13 +510,19 @@ size_t sysex_build_player_state_response(uint8_t target_device_id,
     buffer[pos++] = stereo_separation & 0x7F;  // byte 10
     buffer[pos++] = bpm & 0x7F;            // byte 11: BPM LSB
     buffer[pos++] = (bpm >> 7) & 0x7F;     // byte 12: BPM MSB
+    buffer[pos++] = master_pan & 0x7F;     // byte 13: master pan
+    buffer[pos++] = input_pan & 0x7F;      // byte 14: input pan
 
-    // Mute bits (byte 13+)
+    // Mute bits (byte 15+)
     memcpy(&buffer[pos], mute_bits, mute_bytes);
     pos += mute_bytes;
 
     // Channel volumes
     memcpy(&buffer[pos], channel_volumes, num_channels);
+    pos += num_channels;
+
+    // Channel panning
+    memcpy(&buffer[pos], channel_panning, num_channels);
     pos += num_channels;
 
     buffer[pos++] = SYSEX_END;
@@ -533,10 +542,13 @@ int sysex_parse_player_state_response(const uint8_t *data, size_t data_len,
                                        uint8_t *out_fx_route,
                                        uint8_t *out_stereo_separation,
                                        uint16_t *out_bpm,
+                                       uint8_t *out_master_pan,
+                                       uint8_t *out_input_pan,
                                        uint8_t *out_mute_bits,
-                                       uint8_t *out_channel_volumes) {
-    // Minimum: 13 header bytes + at least 1 mute byte + at least 1 channel volume
-    if (!data || data_len < 15) return 0;
+                                       uint8_t *out_channel_volumes,
+                                       uint8_t *out_channel_panning) {
+    // Minimum: 15 header bytes + at least 1 mute byte + at least 1 channel volume + at least 1 channel pan
+    if (!data || data_len < 18) return 0;
 
     // Extract header
     if (out_playback_flags) *out_playback_flags = data[0];
@@ -566,18 +578,27 @@ int sysex_parse_player_state_response(const uint8_t *data, size_t data_len,
         *out_bpm = bpm_lsb | (bpm_msb << 7);
     }
 
+    // Extract panning (bytes 13-14)
+    if (out_master_pan) *out_master_pan = data[13];
+    if (out_input_pan) *out_input_pan = data[14];
+
     // Validate data length
     size_t mute_bytes = (num_channels + 7) / 8;
-    if (data_len < 13 + mute_bytes + num_channels) return 0;
+    if (data_len < 15 + mute_bytes + num_channels + num_channels) return 0;
 
-    // Extract mute bits (byte 13+)
+    // Extract mute bits (byte 15+)
     if (out_mute_bits) {
-        memcpy(out_mute_bits, &data[13], mute_bytes);
+        memcpy(out_mute_bits, &data[15], mute_bytes);
     }
 
     // Extract channel volumes
     if (out_channel_volumes) {
-        memcpy(out_channel_volumes, &data[13 + mute_bytes], num_channels);
+        memcpy(out_channel_volumes, &data[15 + mute_bytes], num_channels);
+    }
+
+    // Extract channel panning
+    if (out_channel_panning) {
+        memcpy(out_channel_panning, &data[15 + mute_bytes + num_channels], num_channels);
     }
 
     return 1;
@@ -604,6 +625,9 @@ const char* sysex_command_name(SysExCommand cmd) {
         case SYSEX_CMD_INPUT_MUTE:          return "INPUT_MUTE";
         case SYSEX_CMD_FX_SET_ROUTE:        return "FX_SET_ROUTE";
         case SYSEX_CMD_STEREO_SEPARATION:   return "STEREO_SEPARATION";
+        case SYSEX_CMD_CHANNEL_PANNING:     return "CHANNEL_PANNING";
+        case SYSEX_CMD_MASTER_PANNING:      return "MASTER_PANNING";
+        case SYSEX_CMD_INPUT_PANNING:       return "INPUT_PANNING";
         case SYSEX_CMD_JUMP_TO_ORDER_ROW:   return "JUMP_TO_ORDER_ROW";
         case SYSEX_CMD_JUMP_TO_PATTERN_ROW: return "JUMP_TO_PATTERN_ROW";
         case SYSEX_CMD_SET_LOOP_RANGE:      return "SET_LOOP_RANGE";

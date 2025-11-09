@@ -44,6 +44,9 @@ typedef enum {
     SYSEX_CMD_INPUT_MUTE        = 0x36,  // Set input mute
     SYSEX_CMD_FX_SET_ROUTE      = 0x37,  // Set FX routing (0=none, 1=master, 2=playback, 3=input)
     SYSEX_CMD_STEREO_SEPARATION = 0x57,  // Set stereo separation (0-200, where 100=normal)
+    SYSEX_CMD_CHANNEL_PANNING   = 0x58,  // Set channel panning (0=left, 64=center, 127=right)
+    SYSEX_CMD_MASTER_PANNING    = 0x59,  // Set master panning (0=left, 64=center, 127=right)
+    SYSEX_CMD_INPUT_PANNING     = 0x5A,  // Set input panning (0=left, 64=center, 127=right)
     // Position/playback control
     SYSEX_CMD_JUMP_TO_ORDER_ROW   = 0x40,  // Jump to order + row (immediate)
     SYSEX_CMD_JUMP_TO_PATTERN_ROW = 0x46,  // Jump to pattern + row (immediate)
@@ -248,16 +251,20 @@ size_t sysex_build_get_player_state(uint8_t target_device_id, uint8_t *buffer, s
 //   - byte 11: BPM LSB (lower 7 bits)
 //   - byte 12: BPM MSB (upper 7 bits)
 //       BPM value = LSB | (MSB << 7), supports 0-16383 BPM
-//   - byte 13+: bit-packed channel mute states (ceil(num_channels/8) bytes)
-//       channel 0 = bit 0 of byte 13, channel 1 = bit 1 of byte 13, etc.
+//   - byte 13: master pan (0-127, where 0=left, 64=center, 127=right)
+//   - byte 14: input pan (0-127, where 0=left, 64=center, 127=right)
+//   - byte 15+: bit-packed channel mute states (ceil(num_channels/8) bytes)
+//       channel 0 = bit 0 of byte 15, channel 1 = bit 1 of byte 15, etc.
 //       1=muted, 0=unmuted
 //   - byte N+: channel volumes (num_channels bytes, each 0-127)
 //       one byte per channel, where 127 = 100% volume = 1.0
+//   - byte N+: channel panning (num_channels bytes, each 0-127)
+//       one byte per channel, where 0=left, 64=center, 127=right
 //
 // Size examples:
-//   - 4 channels: 13 header + 1 mute + 4 vol = 18 bytes
-//   - 16 channels: 13 header + 2 mute + 16 vol = 31 bytes
-//   - 64 channels: 13 header + 8 mute + 64 vol = 85 bytes
+//   - 4 channels: 15 header + 1 mute + 4 vol + 4 pan = 24 bytes
+//   - 16 channels: 15 header + 2 mute + 16 vol + 16 pan = 49 bytes
+//   - 64 channels: 15 header + 8 mute + 64 vol + 64 pan = 151 bytes
 //
 // mute_bits: pointer to bit-packed mute states (ceil(num_channels/8) bytes)
 // channel_volumes: pointer to channel volume array (num_channels bytes, each 0-127)
@@ -278,8 +285,11 @@ size_t sysex_build_player_state_response(uint8_t target_device_id,
                                           uint8_t fx_route,
                                           uint8_t stereo_separation,
                                           uint16_t bpm,
+                                          uint8_t master_pan,
+                                          uint8_t input_pan,
                                           const uint8_t *mute_bits,
                                           const uint8_t *channel_volumes,
+                                          const uint8_t *channel_panning,
                                           uint8_t *buffer, size_t buffer_size);
 
 // Helper: Parse PLAYER_STATE_RESPONSE message
@@ -299,8 +309,11 @@ int sysex_parse_player_state_response(const uint8_t *data, size_t data_len,
                                        uint8_t *out_fx_route,
                                        uint8_t *out_stereo_separation,
                                        uint16_t *out_bpm,
+                                       uint8_t *out_master_pan,
+                                       uint8_t *out_input_pan,
                                        uint8_t *out_mute_bits,
-                                       uint8_t *out_channel_volumes);
+                                       uint8_t *out_channel_volumes,
+                                       uint8_t *out_channel_panning);
 
 // --- Helper Functions ---
 
