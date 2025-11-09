@@ -1150,6 +1150,234 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
             break;
         }
 
+        // Effects control commands
+        case SYSEX_CMD_FX_EFFECT_GET: {
+            if (data_len >= 2 && effects) {
+                uint8_t program_id = data[0];
+                uint8_t effect_id = data[1];
+
+                // Regroove only supports program 0
+                if (program_id != 0) {
+                    printf("[SysEx] FX_EFFECT_GET: Invalid program ID %d (only 0 supported)\n", program_id);
+                    break;
+                }
+
+                printf("[SysEx] FX_EFFECT_GET: program=%d, effect=%d\n", program_id, effect_id);
+
+                // Build response based on effect ID
+                uint8_t response_buffer[32];
+                uint8_t params[5];  // Max 5 params (compressor)
+                size_t param_count = 0;
+                uint8_t enabled = 0;
+
+                switch (effect_id) {
+                    case SYSEX_FX_DISTORTION:
+                        enabled = regroove_effects_get_distortion_enabled(effects);
+                        params[0] = (uint8_t)(regroove_effects_get_distortion_drive(effects) * 127.0f);
+                        params[1] = (uint8_t)(regroove_effects_get_distortion_mix(effects) * 127.0f);
+                        param_count = 2;
+                        break;
+                    case SYSEX_FX_FILTER:
+                        enabled = regroove_effects_get_filter_enabled(effects);
+                        params[0] = (uint8_t)(regroove_effects_get_filter_cutoff(effects) * 127.0f);
+                        params[1] = (uint8_t)(regroove_effects_get_filter_resonance(effects) * 127.0f);
+                        param_count = 2;
+                        break;
+                    case SYSEX_FX_EQ:
+                        enabled = regroove_effects_get_eq_enabled(effects);
+                        params[0] = (uint8_t)(regroove_effects_get_eq_low(effects) * 127.0f);
+                        params[1] = (uint8_t)(regroove_effects_get_eq_mid(effects) * 127.0f);
+                        params[2] = (uint8_t)(regroove_effects_get_eq_high(effects) * 127.0f);
+                        param_count = 3;
+                        break;
+                    case SYSEX_FX_COMPRESSOR:
+                        enabled = regroove_effects_get_compressor_enabled(effects);
+                        params[0] = (uint8_t)(regroove_effects_get_compressor_threshold(effects) * 127.0f);
+                        params[1] = (uint8_t)(regroove_effects_get_compressor_ratio(effects) * 127.0f);
+                        params[2] = (uint8_t)(regroove_effects_get_compressor_attack(effects) * 127.0f);
+                        params[3] = (uint8_t)(regroove_effects_get_compressor_release(effects) * 127.0f);
+                        params[4] = (uint8_t)(regroove_effects_get_compressor_makeup(effects) * 127.0f);
+                        param_count = 5;
+                        break;
+                    case SYSEX_FX_DELAY:
+                        enabled = regroove_effects_get_delay_enabled(effects);
+                        params[0] = (uint8_t)(regroove_effects_get_delay_time(effects) * 127.0f);
+                        params[1] = (uint8_t)(regroove_effects_get_delay_feedback(effects) * 127.0f);
+                        params[2] = (uint8_t)(regroove_effects_get_delay_mix(effects) * 127.0f);
+                        param_count = 3;
+                        break;
+                    default:
+                        printf("[SysEx] FX_EFFECT_GET: Unknown effect ID %d\n", effect_id);
+                        break;
+                }
+
+                if (param_count > 0) {
+                    // Send FX_EFFECT_SET as response
+                    size_t response_len = sysex_build_fx_effect_set(
+                        device_id, program_id, effect_id, enabled, params, param_count,
+                        response_buffer, sizeof(response_buffer)
+                    );
+                    if (response_len > 0) {
+                        midi_output_send_sysex(response_buffer, response_len);
+                    }
+                }
+            }
+            break;
+        }
+
+        case SYSEX_CMD_FX_EFFECT_SET: {
+            if (data_len >= 3 && effects) {
+                uint8_t program_id = data[0];
+                uint8_t effect_id = data[1];
+                uint8_t enabled = data[2];
+
+                // Regroove only supports program 0
+                if (program_id != 0) {
+                    printf("[SysEx] FX_EFFECT_SET: Invalid program ID %d (only 0 supported)\n", program_id);
+                    break;
+                }
+
+                printf("[SysEx] FX_EFFECT_SET: program=%d, effect=%d, enabled=%d\n",
+                       program_id, effect_id, enabled);
+
+                // Set effect parameters based on effect ID
+                const uint8_t *params = &data[3];
+                size_t param_count = data_len - 3;
+
+                switch (effect_id) {
+                    case SYSEX_FX_DISTORTION:
+                        if (param_count >= 2) {
+                            regroove_effects_set_distortion_enabled(effects, enabled);
+                            regroove_effects_set_distortion_drive(effects, params[0] / 127.0f);
+                            regroove_effects_set_distortion_mix(effects, params[1] / 127.0f);
+                            printf("[SysEx]   Distortion: drive=%.2f, mix=%.2f\n",
+                                   params[0] / 127.0f, params[1] / 127.0f);
+                        }
+                        break;
+                    case SYSEX_FX_FILTER:
+                        if (param_count >= 2) {
+                            regroove_effects_set_filter_enabled(effects, enabled);
+                            regroove_effects_set_filter_cutoff(effects, params[0] / 127.0f);
+                            regroove_effects_set_filter_resonance(effects, params[1] / 127.0f);
+                            printf("[SysEx]   Filter: cutoff=%.2f, resonance=%.2f\n",
+                                   params[0] / 127.0f, params[1] / 127.0f);
+                        }
+                        break;
+                    case SYSEX_FX_EQ:
+                        if (param_count >= 3) {
+                            regroove_effects_set_eq_enabled(effects, enabled);
+                            regroove_effects_set_eq_low(effects, params[0] / 127.0f);
+                            regroove_effects_set_eq_mid(effects, params[1] / 127.0f);
+                            regroove_effects_set_eq_high(effects, params[2] / 127.0f);
+                            printf("[SysEx]   EQ: low=%.2f, mid=%.2f, high=%.2f\n",
+                                   params[0] / 127.0f, params[1] / 127.0f, params[2] / 127.0f);
+                        }
+                        break;
+                    case SYSEX_FX_COMPRESSOR:
+                        if (param_count >= 5) {
+                            regroove_effects_set_compressor_enabled(effects, enabled);
+                            regroove_effects_set_compressor_threshold(effects, params[0] / 127.0f);
+                            regroove_effects_set_compressor_ratio(effects, params[1] / 127.0f);
+                            regroove_effects_set_compressor_attack(effects, params[2] / 127.0f);
+                            regroove_effects_set_compressor_release(effects, params[3] / 127.0f);
+                            regroove_effects_set_compressor_makeup(effects, params[4] / 127.0f);
+                            printf("[SysEx]   Compressor: threshold=%.2f, ratio=%.2f, attack=%.2f, release=%.2f, makeup=%.2f\n",
+                                   params[0] / 127.0f, params[1] / 127.0f, params[2] / 127.0f,
+                                   params[3] / 127.0f, params[4] / 127.0f);
+                        }
+                        break;
+                    case SYSEX_FX_DELAY:
+                        if (param_count >= 3) {
+                            regroove_effects_set_delay_enabled(effects, enabled);
+                            regroove_effects_set_delay_time(effects, params[0] / 127.0f);
+                            regroove_effects_set_delay_feedback(effects, params[1] / 127.0f);
+                            regroove_effects_set_delay_mix(effects, params[2] / 127.0f);
+                            printf("[SysEx]   Delay: time=%.2f, feedback=%.2f, mix=%.2f\n",
+                                   params[0] / 127.0f, params[1] / 127.0f, params[2] / 127.0f);
+                        }
+                        break;
+                    default:
+                        printf("[SysEx] FX_EFFECT_SET: Unknown effect ID %d\n", effect_id);
+                        break;
+                }
+            }
+            break;
+        }
+
+        case SYSEX_CMD_FX_GET_ALL_STATE: {
+            if (data_len >= 1 && effects) {
+                uint8_t program_id = data[0];
+
+                // Regroove only supports program 0
+                if (program_id != 0) {
+                    printf("[SysEx] FX_GET_ALL_STATE: Invalid program ID %d (only 0 supported)\n", program_id);
+                    break;
+                }
+
+                printf("[SysEx] FX_GET_ALL_STATE: program=%d\n", program_id);
+
+                // Gather all effects state
+                uint8_t version = 0x01;
+                uint8_t fx_route_byte = (uint8_t)fx_route;  // Global fx_route variable
+                uint8_t enable_flags = 0;
+
+                // Build enable flags
+                if (regroove_effects_get_distortion_enabled(effects)) enable_flags |= (1 << 0);
+                if (regroove_effects_get_filter_enabled(effects)) enable_flags |= (1 << 1);
+                if (regroove_effects_get_eq_enabled(effects)) enable_flags |= (1 << 2);
+                if (regroove_effects_get_compressor_enabled(effects)) enable_flags |= (1 << 3);
+                if (regroove_effects_get_delay_enabled(effects)) enable_flags |= (1 << 4);
+
+                // Get all parameters
+                uint8_t distortion_params[2] = {
+                    (uint8_t)(regroove_effects_get_distortion_drive(effects) * 127.0f),
+                    (uint8_t)(regroove_effects_get_distortion_mix(effects) * 127.0f)
+                };
+                uint8_t filter_params[2] = {
+                    (uint8_t)(regroove_effects_get_filter_cutoff(effects) * 127.0f),
+                    (uint8_t)(regroove_effects_get_filter_resonance(effects) * 127.0f)
+                };
+                uint8_t eq_params[3] = {
+                    (uint8_t)(regroove_effects_get_eq_low(effects) * 127.0f),
+                    (uint8_t)(regroove_effects_get_eq_mid(effects) * 127.0f),
+                    (uint8_t)(regroove_effects_get_eq_high(effects) * 127.0f)
+                };
+                uint8_t compressor_params[5] = {
+                    (uint8_t)(regroove_effects_get_compressor_threshold(effects) * 127.0f),
+                    (uint8_t)(regroove_effects_get_compressor_ratio(effects) * 127.0f),
+                    (uint8_t)(regroove_effects_get_compressor_attack(effects) * 127.0f),
+                    (uint8_t)(regroove_effects_get_compressor_release(effects) * 127.0f),
+                    (uint8_t)(regroove_effects_get_compressor_makeup(effects) * 127.0f)
+                };
+                uint8_t delay_params[3] = {
+                    (uint8_t)(regroove_effects_get_delay_time(effects) * 127.0f),
+                    (uint8_t)(regroove_effects_get_delay_feedback(effects) * 127.0f),
+                    (uint8_t)(regroove_effects_get_delay_mix(effects) * 127.0f)
+                };
+
+                // Build and send response
+                uint8_t response_buffer[64];
+                size_t response_len = sysex_build_fx_state_response(
+                    device_id, program_id, version, fx_route_byte, enable_flags,
+                    distortion_params, filter_params, eq_params, compressor_params, delay_params,
+                    response_buffer, sizeof(response_buffer)
+                );
+
+                if (response_len > 0) {
+                    midi_output_send_sysex(response_buffer, response_len);
+                    printf("[SysEx] Sent FX_STATE_RESPONSE: %zu bytes\n", response_len);
+                }
+            }
+            break;
+        }
+
+        case SYSEX_CMD_FX_STATE_RESPONSE: {
+            // This is a response message, typically received not sent
+            // Could be used for syncing between instances
+            printf("[SysEx] Received FX_STATE_RESPONSE (not yet implemented)\n");
+            break;
+        }
+
         case SYSEX_CMD_PING:
             printf("[SysEx] PING received from device %d\n", device_id);
             // Could respond with a PING back if needed
