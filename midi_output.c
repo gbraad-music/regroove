@@ -146,7 +146,7 @@ int midi_output_init(int device_id) {
     SDL_AtomicSet(&clock_thread_running, 0);
     SDL_AtomicSet(&target_bpm_atomic, 120 * BPM_SCALE);  // Default 120 BPM
     SDL_AtomicSet(&clock_running, 0);
-    SDL_AtomicSet(&spp_position_atomic, 0);
+    SDL_AtomicSet(&spp_position_atomic, -1);  // -1 prevents sending SPP until position is explicitly set
 
     // Start the clock thread
     SDL_AtomicSet(&clock_thread_running, 1);
