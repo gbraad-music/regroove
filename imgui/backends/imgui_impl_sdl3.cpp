@@ -388,8 +388,11 @@ bool ImGui_ImplSDL3_ProcessEvent(const SDL_Event* event)
         {
             if (ImGui_ImplSDL3_GetViewportForWindowID(event->motion.windowID) == nullptr)
                 return false;
+            // Skip synthetic mouse events from touch (we handle finger events directly)
+            if (event->motion.which == SDL_TOUCH_MOUSEID)
+                return false;
             ImVec2 mouse_pos((float)event->motion.x, (float)event->motion.y);
-            io.AddMouseSourceEvent(event->motion.which == SDL_TOUCH_MOUSEID ? ImGuiMouseSource_TouchScreen : ImGuiMouseSource_Mouse);
+            io.AddMouseSourceEvent(ImGuiMouseSource_Mouse);
             io.AddMousePosEvent(mouse_pos.x, mouse_pos.y);
             return true;
         }
@@ -409,6 +412,9 @@ bool ImGui_ImplSDL3_ProcessEvent(const SDL_Event* event)
         {
             if (ImGui_ImplSDL3_GetViewportForWindowID(event->button.windowID) == nullptr)
                 return false;
+            // Skip synthetic mouse events from touch (we handle finger events directly)
+            if (event->button.which == SDL_TOUCH_MOUSEID)
+                return false;
             int mouse_button = -1;
             if (event->button.button == SDL_BUTTON_LEFT) { mouse_button = 0; }
             if (event->button.button == SDL_BUTTON_RIGHT) { mouse_button = 1; }
@@ -417,7 +423,7 @@ bool ImGui_ImplSDL3_ProcessEvent(const SDL_Event* event)
             if (event->button.button == SDL_BUTTON_X2) { mouse_button = 4; }
             if (mouse_button == -1)
                 break;
-            io.AddMouseSourceEvent(event->button.which == SDL_TOUCH_MOUSEID ? ImGuiMouseSource_TouchScreen : ImGuiMouseSource_Mouse);
+            io.AddMouseSourceEvent(ImGuiMouseSource_Mouse);
             io.AddMouseButtonEvent(mouse_button, (event->type == SDL_EVENT_MOUSE_BUTTON_DOWN));
             bd->MouseButtonsDown = (event->type == SDL_EVENT_MOUSE_BUTTON_DOWN) ? (bd->MouseButtonsDown | (1 << mouse_button)) : (bd->MouseButtonsDown & ~(1 << mouse_button));
             return true;
@@ -439,25 +445,99 @@ bool ImGui_ImplSDL3_ProcessEvent(const SDL_Event* event)
             float y = event->tfinger.y * window_h;
 
             // Map SDL fingerID to pointer_id (0-9)
-            // Use modulo to ensure we stay within IMGUI_MAX_POINTERS range
-            int pointer_id = (int)(event->tfinger.fingerID % IMGUI_MAX_POINTERS);
+            // SDL fingerIDs are NOT sequential, so we need to maintain a mapping
+            static SDL_FingerID finger_map[IMGUI_MAX_POINTERS] = {0};
+            static bool finger_active[IMGUI_MAX_POINTERS] = {false};
+
+            int pointer_id = -1;
+
+#ifdef __ANDROID__
+            if (event->type == SDL_EVENT_FINGER_DOWN)
+            {
+                __android_log_print(ANDROID_LOG_INFO, "Regroove-Native",
+                    "[Finger] DOWN fingerID=%lld at (%.0f,%.0f)",
+                    (long long)event->tfinger.fingerID, x, y);
+            }
+#endif
+
+            if (event->type == SDL_EVENT_FINGER_DOWN)
+            {
+                // Find first available slot
+                // CRITICAL: Start at pointer 1, NOT 0! Pointer 0 is reserved for actual mouse.
+                // This prevents finger events from updating the legacy MousePos which would
+                // cause all sliders to respond to the same finger.
+                for (int i = 1; i < IMGUI_MAX_POINTERS; i++)
+                {
+                    if (!finger_active[i])
+                    {
+                        pointer_id = i;
+                        finger_map[i] = event->tfinger.fingerID;
+                        finger_active[i] = true;
+#ifdef __ANDROID__
+                        __android_log_print(ANDROID_LOG_INFO, "Regroove-Native",
+                            "[Finger] Assigned fingerID %lld -> pointer %d",
+                            (long long)event->tfinger.fingerID, pointer_id);
+#endif
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                // Find existing mapping
+                for (int i = 0; i < IMGUI_MAX_POINTERS; i++)
+                {
+                    if (finger_active[i] && finger_map[i] == event->tfinger.fingerID)
+                    {
+                        pointer_id = i;
+                        if (event->type == SDL_EVENT_FINGER_UP)
+                        {
+                            finger_active[i] = false;
+#ifdef __ANDROID__
+                            __android_log_print(ANDROID_LOG_INFO, "Regroove-Native",
+                                "[Finger] UP fingerID %lld released pointer %d",
+                                (long long)event->tfinger.fingerID, pointer_id);
+#endif
+                        }
+                        break;
+                    }
+                }
+            }
+
+            // If we couldn't find/assign a pointer slot, ignore this event
+            if (pointer_id < 0)
+            {
+#ifdef __ANDROID__
+                const char* evt = (event->type == SDL_EVENT_FINGER_DOWN) ? "DOWN" :
+                                 (event->type == SDL_EVENT_FINGER_UP) ? "UP" : "MOTION";
+                __android_log_print(ANDROID_LOG_WARN, "Regroove-Native",
+                    "[Finger] %s fingerID %lld could NOT be mapped to pointer!",
+                    evt, (long long)event->tfinger.fingerID);
+#endif
+                return false;
+            }
 
             // Mark as touchscreen source
             io.AddMouseSourceEvent(ImGuiMouseSource_TouchScreen);
 
             // Handle different finger event types using multi-pointer functions
+            // Fingers are mapped to pointers 1-9 (NOT 0) to avoid updating legacy MousePos
             if (event->type == SDL_EVENT_FINGER_DOWN)
             {
+#ifdef __ANDROID__
+                __android_log_print(ANDROID_LOG_INFO, "Regroove-Native",
+                    "[Finger] Setting pointer %d DOWN at (%.0f,%.0f)", pointer_id, x, y);
+#endif
                 io.AddMousePosEventEx(pointer_id, x, y);
                 io.AddMouseButtonEventEx(pointer_id, 0, true);  // Left button down
-                if (pointer_id == 0)
-                    bd->MouseButtonsDown |= (1 << 0);
             }
             else if (event->type == SDL_EVENT_FINGER_UP)
             {
+#ifdef __ANDROID__
+                __android_log_print(ANDROID_LOG_INFO, "Regroove-Native",
+                    "[Finger] Setting pointer %d UP", pointer_id);
+#endif
                 io.AddMouseButtonEventEx(pointer_id, 0, false);  // Left button up
-                if (pointer_id == 0)
-                    bd->MouseButtonsDown &= ~(1 << 0);
                 // Mark position as invalid when finger is lifted
                 io.AddMousePosEventEx(pointer_id, -FLT_MAX, -FLT_MAX);
             }
@@ -906,6 +986,29 @@ void ImGui_ImplSDL3_NewFrame()
 
     // Update game controllers (if enabled and available)
     ImGui_ImplSDL3_UpdateGamepads();
+
+#ifdef __ANDROID__
+    // CRITICAL: On tablet/phone with no physical mouse, prevent legacy MouseDown[0]
+    // from interfering with multi-pointer touch handling.
+    // ImGui internally copies multi-pointer state to legacy mouse state, which causes
+    // the regular slider code to activate and interfere with multi-touch.
+    // Only fingers (pointers 1-9) should control widgets via multi-pointer code.
+    bool any_finger_active = false;
+    for (int i = 1; i < IMGUI_MAX_POINTERS; i++)
+    {
+        if (io.MousePointerActive[i])
+        {
+            any_finger_active = true;
+            break;
+        }
+    }
+    if (any_finger_active)
+    {
+        // Forcibly clear legacy mouse state to prevent interference
+        io.MouseDown[0] = false;
+        io.MousePos = ImVec2(-FLT_MAX, -FLT_MAX);
+    }
+#endif
 }
 
 //-----------------------------------------------------------------------------

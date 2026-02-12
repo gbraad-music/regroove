@@ -10268,8 +10268,9 @@ int main(int argc, char* argv[]) {
     // Enable BOTH touch and mouse events on Android
     // Touch events = raw multitouch data
     // Mouse events = for ImGui compatibility
-    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "1");  // Keep touch→mouse (needed for ImGui)
-    SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");  // Don't need mouse→touch
+    // Disable touch→mouse conversion to allow multi-touch with separate pointer IDs
+    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
+    SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");
     SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");
 #endif
 
@@ -10416,6 +10417,11 @@ int main(int argc, char* argv[]) {
         while (SDL_PollEvent(&e)) {
             // Track finger events for multitouch
             if (e.type == SDL_EVENT_FINGER_DOWN || e.type == SDL_EVENT_FINGER_MOTION || e.type == SDL_EVENT_FINGER_UP) {
+#ifdef __ANDROID__
+                const char* evt = (e.type == SDL_EVENT_FINGER_DOWN) ? "DOWN" :
+                                 (e.type == SDL_EVENT_FINGER_UP) ? "UP" : "MOTION";
+                printf("[main-gui] SDL_EVENT_FINGER_%s fingerID=%lld\n", evt, (long long)e.tfinger.fingerID);
+#endif
                 int touch_id = (int)(e.tfinger.fingerID % MAX_TOUCHES);
                 ImVec2 display_size = ImGui::GetIO().DisplaySize;
 
