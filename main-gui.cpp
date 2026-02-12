@@ -635,8 +635,11 @@ extern "C" JNIEXPORT void JNICALL
 Java_nl_gbraad_regroove_MainActivity_nativeFileSelected(JNIEnv* env, jclass cls, jstring path) {
     const char* path_str = env->GetStringUTFChars(path, nullptr);
     if (path_str) {
+        printf("[JNI] nativeFileSelected called with path: %s\n", path_str);
         load_module(path_str);
         env->ReleaseStringUTFChars(path, path_str);
+    } else {
+        printf("[JNI] nativeFileSelected called with NULL path\n");
     }
 }
 #endif
