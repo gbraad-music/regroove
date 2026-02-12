@@ -24,12 +24,23 @@ set(RFX_SYNTH_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../rfx/synth)
 set(RFX_UI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../rfx/ui)
 set(RFX_MIDI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../rfx/midi)
 set(RFX_COMMON_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../rfx/common)
+set(RFX_EFFECTS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../rfx/effects)
 set(RFX_TINYFILEDIALOGS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../rfx/tinyfiledialogs)
 
 # RFX synth library sources (envelope generator)
 set(RFX_SYNTH_SOURCES
     ${RFX_SYNTH_DIR}/synth_envelope.c
     ${RFX_SYNTH_DIR}/synth_utils.c
+)
+
+# RFX effects library sources
+set(RFX_EFFECTS_SOURCES
+    ${RFX_EFFECTS_DIR}/fx_delay.c
+    ${RFX_EFFECTS_DIR}/fx_distortion.c
+    ${RFX_EFFECTS_DIR}/fx_filter.c
+    ${RFX_EFFECTS_DIR}/fx_eq.c
+    ${RFX_EFFECTS_DIR}/fx_compressor.c
+    ${RFX_EFFECTS_DIR}/fx_reverb.c
 )
 
 # Platform detection
@@ -145,6 +156,7 @@ add_executable(regroove-gui
     lcd.c
     ${IMGUI_SOURCES}
     ${RFX_SYNTH_SOURCES}
+    ${RFX_EFFECTS_SOURCES}
     ${DESKTOP_SOURCES}
 )
 
@@ -156,6 +168,7 @@ target_include_directories(regroove-gui PRIVATE
     ${RFX_UI_DIR}
     ${RFX_MIDI_DIR}
     ${RFX_COMMON_DIR}
+    ${RFX_EFFECTS_DIR}
     ${RFX_TINYFILEDIALOGS_DIR}
 )
 
@@ -201,6 +214,12 @@ if(WIN32)
         setupapi
         z
     )
+    # Force console subsystem on Windows so app returns to console when closed
+    if(MSVC)
+        set_target_properties(regroove-gui PROPERTIES LINK_FLAGS "/SUBSYSTEM:CONSOLE")
+    elseif(MINGW)
+        set_target_properties(regroove-gui PROPERTIES LINK_FLAGS "-mconsole")
+    endif()
 elseif(NOT PLATFORM_ANDROID)
     target_link_libraries(regroove-gui PRIVATE
         GL

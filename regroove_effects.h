@@ -7,79 +7,8 @@
 extern "C" {
 #endif
 
-// Delay line size (1 second at 48kHz)
-#define MAX_DELAY_SAMPLES 48000
-
-// Effects chain structure
-typedef struct {
-    // Distortion parameters
-    int distortion_enabled;
-    float distortion_drive;    // 0.0 - 1.0
-    float distortion_mix;      // 0.0 - 1.0 (dry/wet)
-
-    // Filter parameters (simple resonant low-pass)
-    int filter_enabled;
-    float filter_cutoff;       // 0.0 - 1.0 (normalized frequency)
-    float filter_resonance;    // 0.0 - 1.0 (Q factor)
-
-    // 3-band EQ parameters
-    int eq_enabled;
-    float eq_low;              // 0.0 - 1.0 (100Hz boost/cut)
-    float eq_mid;              // 0.0 - 1.0 (1kHz boost/cut)
-    float eq_high;             // 0.0 - 1.0 (10kHz boost/cut)
-
-    // Compressor parameters
-    int compressor_enabled;
-    float compressor_threshold; // 0.0 - 1.0
-    float compressor_ratio;     // 0.0 - 1.0 (maps to 1:1 to 10:1)
-    float compressor_attack;    // 0.0 - 1.0 (fast to slow)
-    float compressor_release;   // 0.0 - 1.0 (fast to slow)
-    float compressor_makeup;    // 0.0 - 1.0 (makeup gain)
-
-    // Phaser parameters
-    int phaser_enabled;
-    float phaser_rate;         // 0.0 - 1.0 (LFO speed)
-    float phaser_depth;        // 0.0 - 1.0 (modulation depth)
-    float phaser_feedback;     // 0.0 - 1.0
-
-    // Reverb parameters
-    int reverb_enabled;
-    float reverb_room_size;    // 0.0 - 1.0
-    float reverb_damping;      // 0.0 - 1.0
-    float reverb_mix;          // 0.0 - 1.0 (dry/wet)
-
-    // Delay/Echo parameters
-    int delay_enabled;
-    float delay_time;          // 0.0 - 1.0 (maps to 0-1000ms)
-    float delay_feedback;      // 0.0 - 1.0
-    float delay_mix;           // 0.0 - 1.0 (dry/wet)
-
-    // Internal state
-    float filter_lp[2];        // Low-pass state (L, R)
-    float filter_bp[2];        // Band-pass state (L, R)
-
-    float distortion_hp[2];    // Distortion pre-emphasis highpass state
-    float distortion_bp_lp[2]; // Distortion bandpass lowpass state
-    float distortion_bp_bp[2]; // Distortion bandpass state
-    float distortion_env[2];   // Distortion envelope follower state
-    float distortion_lp[2];    // Distortion post-filter state
-
-    float eq_lp1[2], eq_lp2[2]; // EQ filter states
-    float eq_bp1[2], eq_bp2[2];
-    float eq_hp1[2], eq_hp2[2];
-
-    float compressor_envelope[2]; // Compressor envelope followers
-    float compressor_rms[2];      // RMS state for smoother detection
-
-    float phaser_lfo_phase;    // Phaser LFO phase
-    float phaser_ap[4][2];     // Phaser all-pass filter states (4 stages, stereo)
-
-    float reverb_comb[8][2];   // Reverb comb filter states (8 combs, stereo)
-    int reverb_comb_pos[8];    // Comb filter read positions
-
-    float *delay_buffer[2];    // Delay buffers (L, R)
-    int delay_write_pos;       // Delay write position
-} RegrooveEffects;
+// Forward declaration - opaque structure (defined in regroove_effects.c)
+typedef struct RegrooveEffects RegrooveEffects;
 
 // Initialize effects with default parameters
 RegrooveEffects* regroove_effects_create(void);
