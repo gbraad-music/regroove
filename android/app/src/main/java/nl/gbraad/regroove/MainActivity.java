@@ -11,7 +11,7 @@ import org.libsdl.app.SDLActivity;
  * Regroove - Module Player with Effects
  */
 public class MainActivity extends SDLActivity {
-    private static final String TAG = "Regroove";
+    private static final String TAG = "Regroove-Native";
 
     private MidiHandler midiHandler;
     private FilePicker filePicker;

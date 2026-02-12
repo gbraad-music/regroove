@@ -6,11 +6,15 @@
 #ifdef __ANDROID__
 
 #include <cstdio>
+#include <jni.h>
 
 #include "midi.h"
 #include "midi_output.h"
 #include "regroove_metadata.h"
 #include "midi_handler.h"
+
+// SDL JNI function
+extern "C" void* SDL_GetAndroidJNIEnv();
 
 extern "C" {
 
@@ -21,12 +25,46 @@ int midi_list_ports(void) {
 }
 
 int midi_get_port_name(int port, char* name_out, int bufsize) {
-    const char* name = midi_handler_get_device_name(port);
-    if (!name || !name_out || bufsize == 0) {
-        if (name_out && bufsize > 0) name_out[0] = '\0';
+    if (!name_out || bufsize == 0) {
         return -1;
     }
-    snprintf(name_out, bufsize, "%s", name);
+
+    // Directly call Java to get name to avoid dangling pointer issues
+    // Get JNI environment from SDL
+    JNIEnv* env = (JNIEnv*)SDL_GetAndroidJNIEnv();
+    if (!env) {
+        snprintf(name_out, bufsize, "Port %d", port);
+        return 0;
+    }
+
+    jclass midiHandlerClass = env->FindClass("nl/gbraad/regroove/MidiHandler");
+    if (!midiHandlerClass) {
+        snprintf(name_out, bufsize, "Port %d", port);
+        return 0;
+    }
+
+    // Call static method to get cached device info from Java side
+    // This avoids race conditions with the C++ device vector
+    jmethodID getNameMethod = env->GetStaticMethodID(midiHandlerClass, "getDeviceNameByIndex", "(I)Ljava/lang/String;");
+    if (!getNameMethod) {
+        env->DeleteLocalRef(midiHandlerClass);
+        snprintf(name_out, bufsize, "Port %d", port);
+        return 0;
+    }
+
+    jstring jname = (jstring)env->CallStaticObjectMethod(midiHandlerClass, getNameMethod, port);
+    if (jname) {
+        const char* name_str = env->GetStringUTFChars(jname, nullptr);
+        if (name_str) {
+            snprintf(name_out, bufsize, "%s", name_str);
+            env->ReleaseStringUTFChars(jname, name_str);
+        }
+        env->DeleteLocalRef(jname);
+    } else {
+        snprintf(name_out, bufsize, "Port %d", port);
+    }
+
+    env->DeleteLocalRef(midiHandlerClass);
     return 0;
 }
 
@@ -41,6 +79,8 @@ static void internal_midi_callback(const midi_message_t* msg, void* userdata) {
 }
 
 int midi_init_multi(MidiEventCallback cb, void *userdata, const int *ports, int num_ports) {
+    // Initialize handler only if not already initialized
+    // (Java enumeration happens once at app startup)
     if (!midi_handler_init()) {
         return -1;
     }
@@ -49,17 +89,25 @@ int midi_init_multi(MidiEventCallback cb, void *userdata, const int *ports, int 
     g_midi_userdata = userdata;
     midi_handler_set_callback(internal_midi_callback, nullptr);
 
-    // Open first device if specified
+    // Open first device if specified and valid
     if (num_ports > 0 && ports && ports[0] >= 0) {
-        midi_handler_open_device(ports[0]);
+        int device_count = midi_handler_get_device_count();
+        if (ports[0] < device_count) {
+            midi_handler_open_device(ports[0]);
+        } else {
+            fprintf(stderr, "MIDI device %d out of range (have %d devices)\n", ports[0], device_count);
+        }
     }
 
     return num_ports;
 }
 
 void midi_deinit(void) {
+    // Just close the current device, but keep the handler initialized
+    // and device list intact (Java enumeration only happens once at startup)
     midi_handler_close_device();
-    midi_handler_cleanup();
+    // DON'T call midi_handler_cleanup() - it destroys the device list!
+    // The handler stays initialized for the lifetime of the app
     g_midi_callback = nullptr;
     g_midi_userdata = nullptr;
 }
@@ -102,21 +150,35 @@ void midi_set_input_channel_filter(int channel) {
 // MIDI Output API (from midi_output.c)
 
 int midi_output_list_ports(void) {
-    return 0;  // MIDI output not supported on Android yet
+    // MIDI output supported - return same device count as input
+    // (Android MIDI devices can both send and receive)
+    return midi_handler_get_device_count();
 }
 
 int midi_output_get_port_name(int port, char* name_out, int bufsize) {
-    (void)port;
-    if (name_out && bufsize > 0) name_out[0] = '\0';
-    return -1;
+    if (!name_out || bufsize == 0) {
+        return -1;
+    }
+
+    // Use same device names as input
+    const char* name = midi_handler_get_device_name(port);
+    if (!name) {
+        name_out[0] = '\0';
+        return -1;
+    }
+
+    snprintf(name_out, bufsize, "%s", name);
+    return 0;
 }
 
 int midi_output_init(int device_id) {
+    // Output uses the same device - no separate initialization needed
     (void)device_id;
     return 0;
 }
 
 void midi_output_deinit(void) {
+    // Don't close - input might still be using it
 }
 
 void midi_output_note_on(int channel, int note, int velocity) {

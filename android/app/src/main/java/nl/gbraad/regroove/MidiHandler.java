@@ -16,7 +16,7 @@ import java.io.IOException;
 import java.lang.reflect.Method;
 
 public class MidiHandler {
-    private static final String TAG = "Regroove-MIDI";
+    private static final String TAG = "Regroove-Native";
     private static MidiHandler instance;
 
     static {
@@ -133,6 +133,17 @@ public class MidiHandler {
             Log.i(TAG, "MIDI Device " + i + ": " + name + " (id=" + id + ")");
             nativeMidiAddDevice(i, id, name);
         }
+    }
+
+    // Called from native code to get device name safely (avoids race conditions)
+    public static String getDeviceNameByIndex(int deviceIndex) {
+        if (instance == null || instance.cachedDevices == null) {
+            return "Port " + deviceIndex;
+        }
+        if (deviceIndex < 0 || deviceIndex >= instance.cachedDevices.length) {
+            return "Port " + deviceIndex;
+        }
+        return instance.getMidiDeviceName(instance.cachedDevices[deviceIndex]);
     }
 
     // Called from native code to open a specific MIDI device by index

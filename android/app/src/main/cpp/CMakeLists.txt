@@ -126,6 +126,8 @@ add_library(main SHARED
 
 target_compile_definitions(main PRIVATE
     __ANDROID__
+    ANDROID_APP_PACKAGE=nl_gbraad_regroove
+    MIDI_LOG_TAG="Regroove-Native"
 )
 
 set_target_properties(main PROPERTIES
