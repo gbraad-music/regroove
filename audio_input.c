@@ -2,7 +2,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <SDL2/SDL.h>
+#include <SDL3/SDL.h>
 
 // Ring buffer for audio input (to handle different buffer sizes and timing)
 // Maximum buffer size: 500ms at 48kHz stereo
@@ -12,7 +12,7 @@ static int16_t *ring_buffer = NULL;
 static int ring_buffer_size = 0;
 static volatile int write_pos = 0;
 static volatile int read_pos = 0;
-static SDL_mutex *ring_mutex = NULL;
+static SDL_Mutex *ring_mutex = NULL;
 
 void audio_input_init(int buffer_ms) {
     if (!ring_mutex) {

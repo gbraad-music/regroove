@@ -253,39 +253,61 @@ void regroove_effects_process(RegrooveEffects* fx, int16_t* buffer, int frames, 
             right = fx->filter_lp[1];
         }
 
-        // --- 3-BAND EQ ---
+        // --- DJ-STYLE 3-BAND KILL EQ ---
         if (fx->eq_enabled) {
-            // 3-band EQ using stable cascaded filters
+            // 3-band DJ kill EQ using stable cascaded filters
             // Low shelf (~250Hz), Mid band (~1kHz), High shelf (~6kHz)
-            // Gain range: 0.5 = neutral, 0.0 = -12dB cut, 1.0 = +12dB boost
+            // DJ-style kill: 0.0 = TOTAL KILL, 0.5 = neutral, 1.0 = boost
             float low_gain = fx->eq_low;   // 0.0 to 1.0
             float mid_gain = fx->eq_mid;   // 0.0 to 1.0
             float high_gain = fx->eq_high; // 0.0 to 1.0
 
-            // Convert to linear gain (0.25x to 4x, with 1.0x at 0.5)
-            float low_mult = powf(4.0f, (low_gain - 0.5f) * 2.0f);   // 0.25 to 4.0
-            float mid_mult = powf(4.0f, (mid_gain - 0.5f) * 2.0f);
-            float high_mult = powf(4.0f, (high_gain - 0.5f) * 2.0f);
+            // DJ kill gain curve:
+            // 0.0 to 0.5: linear kill (0.0x to 1.0x) - allows total frequency elimination
+            // 0.5 to 1.0: exponential boost (1.0x to 4.0x) - +12dB max boost
+            float low_mult, mid_mult, high_mult;
+
+            if (low_gain < 0.5f) {
+                low_mult = low_gain * 2.0f;  // 0.0 to 1.0 (kill zone)
+            } else {
+                low_mult = powf(4.0f, (low_gain - 0.5f) * 2.0f);  // 1.0 to 4.0 (boost zone)
+            }
+
+            if (mid_gain < 0.5f) {
+                mid_mult = mid_gain * 2.0f;
+            } else {
+                mid_mult = powf(4.0f, (mid_gain - 0.5f) * 2.0f);
+            }
+
+            if (high_gain < 0.5f) {
+                high_mult = high_gain * 2.0f;
+            } else {
+                high_mult = powf(4.0f, (high_gain - 0.5f) * 2.0f);
+            }
 
             for (int ch = 0; ch < 2; ch++) {
                 float sample = (ch == 0) ? left : right;
 
-                // Low shelf: one-pole lowpass filter for bass (below 250Hz)
+                // STEP 1: Separate bands using cascaded lowpass filters on ORIGINAL signal
+                // Low band: lowpass at 250Hz (bass)
                 float low_freq = 250.0f / sample_rate;
                 float low_alpha = 1.0f - expf(-2.0f * 3.14159f * low_freq);
                 fx->eq_lp1[ch] += low_alpha * (sample - fx->eq_lp1[ch]);
-                float low_out = fx->eq_lp1[ch] * low_mult + (sample - fx->eq_lp1[ch]);
+                float low_band = fx->eq_lp1[ch];
 
-                // Mid band: bandpass (250Hz to 6kHz) - what's left after low and high
+                // Mid+High band: lowpass at 6kHz (mid+high)
                 float mid_freq = 6000.0f / sample_rate;
                 float mid_alpha = 1.0f - expf(-2.0f * 3.14159f * mid_freq);
-                fx->eq_lp2[ch] += mid_alpha * (low_out - fx->eq_lp2[ch]);
-                float mid_band = fx->eq_lp2[ch] - fx->eq_lp1[ch];
-                float mid_out = low_out + mid_band * (mid_mult - 1.0f);
+                fx->eq_lp2[ch] += mid_alpha * (sample - fx->eq_lp2[ch]);
 
-                // High shelf: boost/cut high frequencies (above 6kHz)
-                float high_band = mid_out - fx->eq_lp2[ch];
-                float final_out = mid_out + high_band * (high_mult - 1.0f);
+                // Extract actual mid band (250Hz to 6kHz)
+                float mid_band = fx->eq_lp2[ch] - fx->eq_lp1[ch];
+
+                // Extract high band (above 6kHz)
+                float high_band = sample - fx->eq_lp2[ch];
+
+                // STEP 2: Apply independent gains to each band
+                float final_out = low_band * low_mult + mid_band * mid_mult + high_band * high_mult;
 
                 if (ch == 0) left = final_out;
                 else right = final_out;

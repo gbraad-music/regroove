@@ -4,8 +4,8 @@
 #include <string.h>
 #include <math.h>
 #include <rtmidi/rtmidi_c.h>
-#include <SDL2/SDL.h>
-#include <SDL2/SDL_thread.h>
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_thread.h>
 
 // MIDI output state
 static RtMidiOutPtr midi_out = NULL;
@@ -34,10 +34,10 @@ static double last_bpm = 0.0;  // Track BPM for pulse timing
 
 // Dedicated MIDI clock thread for reliable timing
 static SDL_Thread *clock_thread = NULL;
-static SDL_atomic_t clock_thread_running;
-static SDL_atomic_t target_bpm_atomic;  // Lock-free BPM updates from audio thread (stored as int32, divide by 1000)
-static SDL_atomic_t clock_running;       // Is clock actively running (playing)?
-static SDL_atomic_t spp_position_atomic; // Current SPP position (MIDI beats) from audio callback
+static SDL_AtomicInt clock_thread_running;
+static SDL_AtomicInt target_bpm_atomic;  // Lock-free BPM updates from audio thread (stored as int32, divide by 1000)
+static SDL_AtomicInt clock_running;       // Is clock actively running (playing)?
+static SDL_AtomicInt spp_position_atomic; // Current SPP position (MIDI beats) from audio callback
 
 #define BPM_SCALE 1000  // Scale factor for atomic BPM storage (allows 3 decimal places)
 
@@ -143,13 +143,13 @@ int midi_output_init(int device_id) {
     }
 
     // Initialize atomic variables
-    SDL_AtomicSet(&clock_thread_running, 0);
-    SDL_AtomicSet(&target_bpm_atomic, 120 * BPM_SCALE);  // Default 120 BPM
-    SDL_AtomicSet(&clock_running, 0);
-    SDL_AtomicSet(&spp_position_atomic, -1);  // -1 prevents sending SPP until position is explicitly set
+    SDL_SetAtomicInt(&clock_thread_running, 0);
+    SDL_SetAtomicInt(&target_bpm_atomic, 120 * BPM_SCALE);  // Default 120 BPM
+    SDL_SetAtomicInt(&clock_running, 0);
+    SDL_SetAtomicInt(&spp_position_atomic, -1);  // -1 prevents sending SPP until position is explicitly set
 
     // Start the clock thread
-    SDL_AtomicSet(&clock_thread_running, 1);
+    SDL_SetAtomicInt(&clock_thread_running, 1);
     clock_thread = SDL_CreateThread(midi_clock_thread_func, "MIDI Clock", NULL);
     if (!clock_thread) {
         fprintf(stderr, "Failed to create MIDI clock thread\n");
@@ -164,7 +164,7 @@ int midi_output_init(int device_id) {
 void midi_output_deinit(void) {
     // Stop the clock thread first
     if (clock_thread) {
-        SDL_AtomicSet(&clock_thread_running, 0);
+        SDL_SetAtomicInt(&clock_thread_running, 0);
         SDL_WaitThread(clock_thread, NULL);
         clock_thread = NULL;
         printf("[MIDI Output] Clock thread stopped\n");
@@ -405,7 +405,7 @@ void midi_output_send_start(void) {
     if (!midi_out) return;
 
     // Signal clock thread to start sending pulses
-    SDL_AtomicSet(&clock_running, 1);
+    SDL_SetAtomicInt(&clock_running, 1);
 
     // Reset clock accumulator when starting playback (if clock master is enabled)
     if (clock_master_enabled) {
@@ -424,7 +424,7 @@ void midi_output_send_stop(void) {
     if (!midi_out) return;
 
     // Signal clock thread to stop sending pulses
-    SDL_AtomicSet(&clock_running, 0);
+    SDL_SetAtomicInt(&clock_running, 0);
 
     // Send MIDI Stop message (0xFC)
     unsigned char msg[1];
@@ -483,14 +483,14 @@ static int midi_clock_thread_func(void *data) {
 
     printf("[MIDI Clock Thread] Started\n");
 
-    while (SDL_AtomicGet(&clock_thread_running)) {
+    while (SDL_GetAtomicInt(&clock_thread_running)) {
         // Check if clock should be running
-        int is_playing = SDL_AtomicGet(&clock_running);
+        int is_playing = SDL_GetAtomicInt(&clock_running);
 
         if (!is_playing) {
             // Not playing, but still check for SPP updates (SPP works independently of clock)
             if (spp_send_mode > 0) {
-                int current_spp = SDL_AtomicGet(&spp_position_atomic);
+                int current_spp = SDL_GetAtomicInt(&spp_position_atomic);
                 if (current_spp != last_sent_spp && current_spp >= 0) {
                     midi_output_send_song_position(current_spp);
                     last_sent_spp = current_spp;
@@ -504,7 +504,7 @@ static int midi_clock_thread_func(void *data) {
 
         // Handle SPP independently of clock (even if clock is disabled)
         if (spp_send_mode > 0) {
-            int current_spp = SDL_AtomicGet(&spp_position_atomic);
+            int current_spp = SDL_GetAtomicInt(&spp_position_atomic);
             if (current_spp != last_sent_spp && current_spp >= 0) {
                 midi_output_send_song_position(current_spp);
                 last_sent_spp = current_spp;
@@ -520,7 +520,7 @@ static int midi_clock_thread_func(void *data) {
         }
 
         // Get target BPM from audio thread (lock-free)
-        int bpm_scaled = SDL_AtomicGet(&target_bpm_atomic);
+        int bpm_scaled = SDL_GetAtomicInt(&target_bpm_atomic);
         double target_bpm = (double)bpm_scaled / BPM_SCALE;
 
         if (target_bpm > 0.0) {
@@ -603,7 +603,7 @@ void midi_output_update_clock(double bpm, double row_fraction) {
 
     // Update target BPM atomically (lock-free communication to clock thread)
     int bpm_scaled = (int)(bpm * BPM_SCALE);
-    SDL_AtomicSet(&target_bpm_atomic, bpm_scaled);
+    SDL_SetAtomicInt(&target_bpm_atomic, bpm_scaled);
 
     last_bpm = bpm;
 }
@@ -615,7 +615,7 @@ void midi_output_set_spp_config(int mode, int interval) {
 
 void midi_output_update_position(int spp_position) {
     // Update current SPP position atomically for clock thread to send
-    SDL_AtomicSet(&spp_position_atomic, spp_position);
+    SDL_SetAtomicInt(&spp_position_atomic, spp_position);
 }
 
 // Call this from audio callback to send clock pulses at precise intervals

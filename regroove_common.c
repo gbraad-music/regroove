@@ -6,7 +6,7 @@
 #include <dirent.h>
 #include <ctype.h>
 #include <sys/stat.h>
-#include <SDL.h>
+#include <SDL3/SDL.h>
 
 // Helper: Check if filename is a module file
 static int is_module_file(const char *filename) {
@@ -425,18 +425,15 @@ int regroove_common_load_module(RegrooveCommonState *state, const char *path,
 
     // Lock audio before destroying old module
     if (state->audio_device_id) {
-        SDL_LockAudioDevice(state->audio_device_id);
     }
     if (state->player) {
         Regroove *old = state->player;
         state->player = NULL;
         if (state->audio_device_id) {
-            SDL_UnlockAudioDevice(state->audio_device_id);
         }
         regroove_destroy(old);
     } else {
         if (state->audio_device_id) {
-            SDL_UnlockAudioDevice(state->audio_device_id);
         }
     }
 
@@ -455,11 +452,9 @@ int regroove_common_load_module(RegrooveCommonState *state, const char *path,
 
     // Lock audio and assign new module
     if (state->audio_device_id) {
-        SDL_LockAudioDevice(state->audio_device_id);
     }
     state->player = mod;
     if (state->audio_device_id) {
-        SDL_UnlockAudioDevice(state->audio_device_id);
     }
 
     // Update state
@@ -560,12 +555,10 @@ void regroove_common_destroy(RegrooveCommonState *state) {
     // Safely destroy player
     if (state->player) {
         if (state->audio_device_id) {
-            SDL_LockAudioDevice(state->audio_device_id);
         }
         Regroove *tmp = state->player;
         state->player = NULL;
         if (state->audio_device_id) {
-            SDL_UnlockAudioDevice(state->audio_device_id);
         }
         regroove_destroy(tmp);
     }
@@ -624,7 +617,7 @@ void regroove_common_play_pause(RegrooveCommonState *state, int play) {
 
     state->paused = !play;
     if (state->audio_device_id) {
-        SDL_PauseAudioDevice(state->audio_device_id, !play);
+        if (play) SDL_ResumeAudioDevice(state->audio_device_id); else SDL_PauseAudioDevice(state->audio_device_id);
     }
 }
 
@@ -1201,7 +1194,7 @@ static void phrase_completion_callback(int phrase_index, void *userdata) {
 
     // Stop playback
     if (state->audio_device_id) {
-        SDL_PauseAudioDevice(state->audio_device_id, 1);
+        SDL_PauseAudioDevice(state->audio_device_id);
     }
     state->paused = 1;
 
@@ -1228,7 +1221,7 @@ void regroove_common_trigger_phrase(RegrooveCommonState *state, int phrase_index
     // Reset to clean state before starting phrase
     // 1. Stop playback
     if (state->audio_device_id) {
-        SDL_PauseAudioDevice(state->audio_device_id, 1);
+        SDL_PauseAudioDevice(state->audio_device_id);
     }
     state->paused = 1;
 
@@ -1254,7 +1247,7 @@ void regroove_common_trigger_phrase(RegrooveCommonState *state, int phrase_index
 
     // Start playback for the phrase
     if (state->audio_device_id) {
-        SDL_PauseAudioDevice(state->audio_device_id, 0);
+        SDL_ResumeAudioDevice(state->audio_device_id);
     }
     state->paused = 0;
 }

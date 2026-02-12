@@ -1580,6 +1580,22 @@ ImGuiIO::ImGuiIO()
     for (int i = 0; i < IM_ARRAYSIZE(MouseDownDuration); i++) MouseDownDuration[i] = MouseDownDurationPrev[i] = -1.0f;
     for (int i = 0; i < IM_ARRAYSIZE(KeysData); i++) { KeysData[i].DownDuration = KeysData[i].DownDurationPrev = -1.0f; }
     AppAcceptingEvents = true;
+
+    // Multi-pointer initialization
+    ActivePointerCount = 0;
+    ActiveWidgetPointer = 0;
+    for (int i = 0; i < IMGUI_MAX_POINTERS; i++)
+    {
+        MousePosMulti[i] = ImVec2(-FLT_MAX, -FLT_MAX);
+        MousePointerActive[i] = false;
+        for (int j = 0; j < 5; j++)
+        {
+            MouseDownMulti[i][j] = false;
+            MouseClickedMulti[i][j] = false;
+            MouseReleasedMulti[i][j] = false;
+            MouseDownDurationMulti[i][j] = -1.0f;
+        }
+    }
 }
 
 // Pass in translated ASCII characters for text input.
@@ -1817,6 +1833,7 @@ void ImGuiIO::AddMousePosEvent(float x, float y)
     e.MousePos.PosX = pos.x;
     e.MousePos.PosY = pos.y;
     e.MousePos.MouseSource = g.InputEventsNextMouseSource;
+    e.MousePos.PointerID = 0;  // Default pointer ID for backwards compatibility
     g.InputEventsQueue.push_back(e);
 }
 
@@ -1865,6 +1882,7 @@ void ImGuiIO::AddMouseButtonEvent(int mouse_button, bool down)
     e.MouseButton.Button = mouse_button;
     e.MouseButton.Down = down;
     e.MouseButton.MouseSource = g.InputEventsNextMouseSource;
+    e.MouseButton.PointerID = 0;  // Default pointer ID for backwards compatibility
     g.InputEventsQueue.push_back(e);
 }
 
@@ -1895,6 +1913,88 @@ void ImGuiIO::AddMouseSourceEvent(ImGuiMouseSource source)
     IM_ASSERT(Ctx != NULL);
     ImGuiContext& g = *Ctx;
     g.InputEventsNextMouseSource = source;
+}
+
+// Multi-pointer version of AddMousePosEvent with explicit pointer ID
+void ImGuiIO::AddMousePosEventEx(int pointer_id, float x, float y)
+{
+    IM_ASSERT(Ctx != NULL);
+    IM_ASSERT(pointer_id >= 0 && pointer_id < IMGUI_MAX_POINTERS);
+    ImGuiContext& g = *Ctx;
+    if (!AppAcceptingEvents)
+        return;
+
+    // Apply same flooring as UpdateMouseInputs()
+    ImVec2 pos((x > -FLT_MAX) ? ImFloor(x) : x, (y > -FLT_MAX) ? ImFloor(y) : y);
+
+    // Filter duplicate - check against multi-pointer state
+    if (MousePointerActive[pointer_id] && MousePosMulti[pointer_id].x == pos.x && MousePosMulti[pointer_id].y == pos.y)
+        return;
+
+    // Update multi-pointer state
+    MousePosMulti[pointer_id] = pos;
+    if (pos.x > -FLT_MAX && pos.y > -FLT_MAX)
+        MousePointerActive[pointer_id] = true;
+    else
+        MousePointerActive[pointer_id] = false;
+
+    // Create input event
+    ImGuiInputEvent e;
+    e.Type = ImGuiInputEventType_MousePos;
+    e.Source = ImGuiInputSource_Mouse;
+    e.EventId = g.InputEventsNextEventId++;
+    e.MousePos.PosX = pos.x;
+    e.MousePos.PosY = pos.y;
+    e.MousePos.MouseSource = g.InputEventsNextMouseSource;
+    e.MousePos.PointerID = pointer_id;
+    g.InputEventsQueue.push_back(e);
+
+    // Also update legacy fields for pointer 0
+    if (pointer_id == 0)
+    {
+        MousePos = pos;
+    }
+}
+
+// Multi-pointer version of AddMouseButtonEvent with explicit pointer ID
+void ImGuiIO::AddMouseButtonEventEx(int pointer_id, int mouse_button, bool down)
+{
+    IM_ASSERT(Ctx != NULL);
+    IM_ASSERT(pointer_id >= 0 && pointer_id < IMGUI_MAX_POINTERS);
+    IM_ASSERT(mouse_button >= 0 && mouse_button < ImGuiMouseButton_COUNT);
+    ImGuiContext& g = *Ctx;
+    if (!AppAcceptingEvents)
+        return;
+
+    // Filter duplicate - check against multi-pointer state
+    if (MouseDownMulti[pointer_id][mouse_button] == down)
+        return;
+
+    // Update multi-pointer state
+    bool was_down = MouseDownMulti[pointer_id][mouse_button];
+    MouseDownMulti[pointer_id][mouse_button] = down;
+
+    if (down && !was_down)
+        MouseClickedMulti[pointer_id][mouse_button] = true;
+    else if (!down && was_down)
+        MouseReleasedMulti[pointer_id][mouse_button] = true;
+
+    // Create input event
+    ImGuiInputEvent e;
+    e.Type = ImGuiInputEventType_MouseButton;
+    e.Source = ImGuiInputSource_Mouse;
+    e.EventId = g.InputEventsNextEventId++;
+    e.MouseButton.Button = mouse_button;
+    e.MouseButton.Down = down;
+    e.MouseButton.MouseSource = g.InputEventsNextMouseSource;
+    e.MouseButton.PointerID = pointer_id;
+    g.InputEventsQueue.push_back(e);
+
+    // Also update legacy fields for pointer 0
+    if (pointer_id == 0)
+    {
+        MouseDown[mouse_button] = down;
+    }
 }
 
 void ImGuiIO::AddFocusEvent(bool focused)
@@ -10276,6 +10376,17 @@ void ImGui::UpdateInputEvents(bool trickle_fast_inputs)
             io.MousePos = event_pos;
             io.MouseSource = e->MousePos.MouseSource;
             mouse_moved = true;
+
+            // Multi-pointer: Update multi-pointer state
+            int pointer_id = e->MousePos.PointerID;
+            if (pointer_id >= 0 && pointer_id < IMGUI_MAX_POINTERS)
+            {
+                io.MousePosMulti[pointer_id] = event_pos;
+                if (event_pos.x > -FLT_MAX && event_pos.y > -FLT_MAX)
+                    io.MousePointerActive[pointer_id] = true;
+                else
+                    io.MousePointerActive[pointer_id] = false;
+            }
         }
         else if (e->Type == ImGuiInputEventType_MouseButton)
         {
@@ -10289,6 +10400,19 @@ void ImGui::UpdateInputEvents(bool trickle_fast_inputs)
             io.MouseDown[button] = e->MouseButton.Down;
             io.MouseSource = e->MouseButton.MouseSource;
             mouse_button_changed |= (1 << button);
+
+            // Multi-pointer: Update multi-pointer state
+            int pointer_id = e->MouseButton.PointerID;
+            if (pointer_id >= 0 && pointer_id < IMGUI_MAX_POINTERS)
+            {
+                bool was_down = io.MouseDownMulti[pointer_id][button];
+                io.MouseDownMulti[pointer_id][button] = e->MouseButton.Down;
+
+                if (e->MouseButton.Down && !was_down)
+                    io.MouseClickedMulti[pointer_id][button] = true;
+                else if (!e->MouseButton.Down && was_down)
+                    io.MouseReleasedMulti[pointer_id][button] = true;
+            }
         }
         else if (e->Type == ImGuiInputEventType_MouseWheel)
         {

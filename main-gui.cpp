@@ -1,8 +1,9 @@
 #include "imgui.h"
-#include "imgui_impl_sdl2.h"
+#include "imgui_impl_sdl3.h"
 #include "imgui_impl_opengl2.h"
-#include <SDL.h>
-#include <SDL_opengl.h>
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_main.h>
+#include <SDL3/SDL_opengl.h>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -10,6 +11,9 @@
 #include <vector>
 #include <sys/stat.h>
 #include <ctime>
+#ifdef __ANDROID__
+#include <jni.h>
+#endif
 
 extern "C" {
 #include "regroove_common.h"
@@ -20,6 +24,10 @@ extern "C" {
 #include "lcd.h"
 #include "regroove_effects.h"
 #include "audio_input.h"
+#include "sdl_audio_init.h"  // Shared SDL3 audio initialization
+#ifndef __ANDROID__
+#include "tinyfiledialogs.h"
+#endif
 }
 
 // -----------------------------------------------------------------------------
@@ -126,12 +134,16 @@ static void apply_channel_settings() {
 
 // Audio device state
 static std::vector<std::string> audio_device_names;
+static std::vector<SDL_AudioDeviceID> audio_device_ids;
 static int selected_audio_device = -1;
+static SDL_AudioStream* audio_stream = nullptr;
 static SDL_AudioDeviceID audio_device_id = 0;
 
 // Audio input device state
 static std::vector<std::string> audio_input_device_names;
+static std::vector<SDL_AudioDeviceID> audio_input_device_ids;
 static int selected_audio_input_device = -1;
+static SDL_AudioStream* audio_input_stream = nullptr;
 static SDL_AudioDeviceID audio_input_device_id = 0;
 
 // MIDI device cache (refreshed only when settings panel is shown or on refresh button)
@@ -220,17 +232,37 @@ void add_to_midi_monitor(int device_id, const char* type, int number, int value,
 
 void refresh_audio_devices() {
     audio_device_names.clear();
-    int n = SDL_GetNumAudioDevices(0); // 0 = output devices
-    for (int i = 0; i < n; i++) {
-        audio_device_names.push_back(SDL_GetAudioDeviceName(i, 0));
+    audio_device_ids.clear();
+    // SDL3: Get playback devices
+    int count = 0;
+    SDL_AudioDeviceID* devices = SDL_GetAudioPlaybackDevices(&count);
+    if (devices) {
+        for (int i = 0; i < count; i++) {
+            const char* name = SDL_GetAudioDeviceName(devices[i]);
+            if (name) {
+                audio_device_names.push_back(name);
+                audio_device_ids.push_back(devices[i]);
+            }
+        }
+        SDL_free(devices);
     }
 }
 
 void refresh_audio_input_devices() {
     audio_input_device_names.clear();
-    int n = SDL_GetNumAudioDevices(1); // 1 = input devices (capture)
-    for (int i = 0; i < n; i++) {
-        audio_input_device_names.push_back(SDL_GetAudioDeviceName(i, 1));
+    audio_input_device_ids.clear();
+    // SDL3: Get recording devices
+    int count = 0;
+    SDL_AudioDeviceID* devices = SDL_GetAudioRecordingDevices(&count);
+    if (devices) {
+        for (int i = 0; i < count; i++) {
+            const char* name = SDL_GetAudioDeviceName(devices[i]);
+            if (name) {
+                audio_input_device_names.push_back(name);
+                audio_input_device_ids.push_back(devices[i]);
+            }
+        }
+        SDL_free(devices);
     }
 }
 
@@ -1731,21 +1763,17 @@ void dispatch_action(GuiAction act, int arg1 = -1, float arg2 = 0.0f, bool shoul
         case ACT_JUMP_TO_ORDER:
             if (mod && arg1 >= 0) {
                 // Lock audio to ensure jump and mute-apply happen atomically
-                if (audio_device_id) SDL_LockAudioDevice(audio_device_id);
                 regroove_jump_to_order(mod, arg1);
                 // Apply channel settings AFTER jumping because the jump may reset mute/pan states
                 apply_channel_settings();
-                if (audio_device_id) SDL_UnlockAudioDevice(audio_device_id);
             }
             break;
         case ACT_JUMP_TO_PATTERN:
             if (mod && arg1 >= 0) {
                 // Lock audio to ensure jump and mute-apply happen atomically
-                if (audio_device_id) SDL_LockAudioDevice(audio_device_id);
                 regroove_jump_to_pattern(mod, arg1);
                 // Apply channel settings AFTER jumping because the jump may reset mute/pan states
                 apply_channel_settings();
-                if (audio_device_id) SDL_UnlockAudioDevice(audio_device_id);
             }
             break;
         case ACT_QUEUE_ORDER:
@@ -1907,7 +1935,7 @@ static void execute_action(InputAction action, int parameter, float value, void*
         case ACTION_QUIT:
             {
                 SDL_Event quit;
-                quit.type = SDL_QUIT;
+                quit.type = SDL_EVENT_QUIT;
                 SDL_PushEvent(&quit);
             }
             break;
@@ -3454,7 +3482,7 @@ static void learn_midi_mapping(int device_id, int cc_or_note, bool is_note) {
 }
 
 void handle_keyboard(SDL_Event &e, SDL_Window *window) {
-    if (e.type != SDL_KEYDOWN) return;
+    if (e.type != SDL_EVENT_KEY_DOWN) return;
 
     // Don't process keyboard shortcuts if user is typing in a text field
     ImGuiIO& io = ImGui::GetIO();
@@ -3463,20 +3491,20 @@ void handle_keyboard(SDL_Event &e, SDL_Window *window) {
     }
 
     // Handle special GUI-only keys first
-    if (e.key.keysym.sym == SDLK_F11) {
+    if (e.key.key == SDLK_F11) {
         if (window) {
             Uint32 flags = SDL_GetWindowFlags(window);
-            if (flags & SDL_WINDOW_FULLSCREEN_DESKTOP) {
+            if (flags & SDL_WINDOW_FULLSCREEN) {
                 SDL_SetWindowFullscreen(window, 0);
             } else {
-                SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
+                SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN);
             }
         }
         return;
     }
 
     // F12: Toggle fullscreen pads performance mode
-    if (e.key.keysym.sym == SDLK_F12) {
+    if (e.key.key == SDLK_F12) {
         fullscreen_pads_mode = !fullscreen_pads_mode;
         if (fullscreen_pads_mode) {
             ui_mode = UI_MODE_PADS;  // Auto-switch to PADS mode
@@ -3485,11 +3513,11 @@ void handle_keyboard(SDL_Event &e, SDL_Window *window) {
     }
 
     // Convert SDL key to character for input mappings
-    int key = e.key.keysym.sym;
+    int key = e.key.key;
 
-    if (key >= SDLK_a && key <= SDLK_z) {
+    if (key >= SDLK_A && key <= SDLK_Z) {
         // Convert to lowercase character
-        key = 'a' + (key - SDLK_a);
+        key = 'a' + (key - SDLK_A);
     } else if (key >= SDLK_0 && key <= SDLK_9) {
         key = '0' + (key - SDLK_0);
     } else if (key >= SDLK_KP_1 && key <= SDLK_KP_9) {
@@ -3608,11 +3636,9 @@ void my_midi_spp_callback(int position, void* userdata) {
         //            current_row, target_row, row_diff, position, order, target_order);
         // }
         // Lock audio to ensure jump and mute-apply happen atomically
-        if (audio_device_id) SDL_LockAudioDevice(audio_device_id);
         regroove_set_position_row(common_state->player, target_row);
         // Apply channel settings AFTER jumping because the jump may reset mute/pan states
         apply_channel_settings();
-        if (audio_device_id) SDL_UnlockAudioDevice(audio_device_id);
     }
 }
 
@@ -3775,14 +3801,15 @@ void my_midi_mapping(unsigned char status, unsigned char cc_or_note, unsigned ch
 }
 
 // -----------------------------------------------------------------------------
-// Audio Callback
+// Audio Callback (SDL3)
 // -----------------------------------------------------------------------------
-static void audio_callback(void *userdata, Uint8 *stream, int len) {
-    int16_t *buffer = (int16_t *)stream;
-    int frames = len / (2 * sizeof(int16_t));
+static void audio_callback(void* userdata, SDL_AudioStream* stream, int additional_amount, int total_amount) {
+    // Calculate frames from bytes needed (SDL3 audio uses float32 stereo)
+    int frames = additional_amount / (2 * sizeof(float));
+    if (frames <= 0) return;
 
-    // Clear buffer first
-    memset(buffer, 0, len);
+    // Allocate int16_t buffer for processing (regroove engine uses int16)
+    int16_t* buffer = (int16_t*)calloc(frames * 2, sizeof(int16_t));
 
     // Render playback audio (if playing, player exists, and not muted)
     if (playing && common_state && common_state->player && !playback_mute) {
@@ -3902,34 +3929,74 @@ static void audio_callback(void *userdata, Uint8 *stream, int len) {
         }
     } else {
         // Master mute - silence everything
-        memset(buffer, 0, len);
+        memset(buffer, 0, frames * 2 * sizeof(int16_t));
     }
 
+    // Convert int16 to float32 and send to stream (SDL3 uses float audio)
+    float* float_buffer = (float*)malloc(frames * 2 * sizeof(float));
+    if (float_buffer) {
+        for (int i = 0; i < frames * 2; i++) {
+            float_buffer[i] = buffer[i] / 32768.0f;
+        }
+        SDL_PutAudioStreamData(stream, float_buffer, frames * 2 * sizeof(float));
+        free(float_buffer);
+    }
+
+    free(buffer);
 }
 
-// Audio input callback - captures audio from input device
-static void audio_input_callback(void *userdata, Uint8 *stream, int len) {
+// Audio input callback - captures audio from input device (SDL3 PUT callback)
+static void audio_input_callback(void* userdata, SDL_AudioStream* stream, int additional_amount, int total_amount) {
     (void)userdata;
+    (void)total_amount;
 
-    int16_t *samples = (int16_t*)stream;
-    int num_samples = len / sizeof(int16_t);  // Total samples (stereo)
+    // additional_amount is how many bytes of NEW data arrived
+    if (additional_amount <= 0) return;
 
-    // Write to ring buffer using the audio_input module
-    audio_input_write(samples, num_samples);
+    int frames = additional_amount / (2 * sizeof(float));
+    if (frames <= 0) return;
 
-    // Debug: Check if we're getting any signal (first time only)
-    static bool first_signal_check = true;
-    if (first_signal_check) {
-        int max_sample = 0;
-        for (int i = 0; i < num_samples; i++) {
-            int abs_val = abs(samples[i]);
-            if (abs_val > max_sample) max_sample = abs_val;
-        }
-        if (max_sample > 100) {
-            printf("Audio input receiving signal (max amplitude: %d)\n", max_sample);
-            first_signal_check = false;
+    // Allocate buffer to read the new data
+    float* float_buffer = (float*)malloc(additional_amount);
+    if (!float_buffer) return;
+
+    // Get the new audio data from stream
+    int bytes_read = SDL_GetAudioStreamData(stream, float_buffer, additional_amount);
+    if (bytes_read > 0) {
+        int samples = bytes_read / sizeof(float);
+
+        // Convert float32 to int16 for audio_input module
+        int16_t* int16_buffer = (int16_t*)malloc(samples * sizeof(int16_t));
+        if (int16_buffer) {
+            for (int i = 0; i < samples; i++) {
+                int32_t sample = (int32_t)(float_buffer[i] * 32768.0f);
+                if (sample > 32767) sample = 32767;
+                if (sample < -32768) sample = -32768;
+                int16_buffer[i] = (int16_t)sample;
+            }
+
+            // Write to ring buffer
+            audio_input_write(int16_buffer, samples);
+
+            // Debug: Check signal on first input
+            static bool first_signal_check = true;
+            if (first_signal_check) {
+                int max_sample = 0;
+                for (int i = 0; i < samples; i++) {
+                    int abs_val = abs(int16_buffer[i]);
+                    if (abs_val > max_sample) max_sample = abs_val;
+                }
+                if (max_sample > 100) {
+                    printf("Audio input receiving signal (max amplitude: %d)\n", max_sample);
+                    first_signal_check = false;
+                }
+            }
+
+            free(int16_buffer);
         }
     }
+
+    free(float_buffer);
 }
 
 // -----------------------------------------------------------------------------
@@ -3951,6 +4018,7 @@ static void ApplyFlatBlackRedSkin()
     s.ChildBorderSize  = 1.0f;
     s.WindowBorderSize = 0.0f;
     s.FrameBorderSize  = 0.0f;
+    s.GrabMinSize      = 20.0f;  // Larger grab handle for touch-friendly sliders
 
     ImVec4* c = s.Colors;
     ImVec4 black = ImVec4(0,0,0,1);
@@ -4175,29 +4243,62 @@ static void ShowMainUI() {
 
     // File browser buttons
     ImGui::BeginGroup();
-    if (ImGui::Button("<", ImVec2(BUTTON_SIZE, BUTTON_SIZE))) {
-        if (learn_mode_active) {
-            start_learn_for_action(ACTION_FILE_PREV);
-        } else if (common_state && common_state->file_list) {
-            regroove_filelist_prev(common_state->file_list);
+    // Only show prev/next buttons if a file list was loaded (headless mode with directory)
+    if (common_state && common_state->file_list) {
+        if (ImGui::Button("<", ImVec2(BUTTON_SIZE, BUTTON_SIZE))) {
+            if (learn_mode_active) {
+                start_learn_for_action(ACTION_FILE_PREV);
+            } else {
+                regroove_filelist_prev(common_state->file_list);
+            }
         }
+        ImGui::SameLine();
     }
-    ImGui::SameLine();
     if (ImGui::Button("o", ImVec2(BUTTON_SIZE, BUTTON_SIZE))) {
         if (learn_mode_active) {
             start_learn_for_action(ACTION_FILE_LOAD);
-        } else if (common_state && common_state->file_list) {
-            char path[COMMON_MAX_PATH * 2];
-            regroove_filelist_get_current_path(common_state->file_list, path, sizeof(path));
-            load_module(path);
+        } else {
+#ifdef __ANDROID__
+            // Android: Open Android file picker via JNI
+            JNIEnv* env = (JNIEnv*)SDL_GetAndroidJNIEnv();
+            jobject activity = (jobject)SDL_GetAndroidActivity();
+            if (env && activity) {
+                jclass activity_class = env->GetObjectClass(activity);
+                jclass main_activity_class = env->FindClass("nl/gbraad/regroove/MainActivity");
+                if (main_activity_class) {
+                    jmethodID openFilePickerMethod = env->GetStaticMethodID(main_activity_class, "openFilePicker", "()V");
+                    if (openFilePickerMethod) {
+                        env->CallStaticVoidMethod(main_activity_class, openFilePickerMethod);
+                    }
+                    env->DeleteLocalRef(main_activity_class);
+                }
+                env->DeleteLocalRef(activity_class);
+            }
+#else
+            // Desktop (Windows/Linux): Open native file dialog for ALL files
+            const char* selected = tinyfd_openFileDialog(
+                "Select Module File",
+                NULL,
+                0,      // No filter patterns - accept all files
+                NULL,   // No filter
+                NULL,   // No description
+                0       // Single file selection
+            );
+            if (selected) {
+                load_module(selected);
+            }
+#endif
         }
     }
-    ImGui::SameLine();
-    if (ImGui::Button(">", ImVec2(BUTTON_SIZE, BUTTON_SIZE))) {
-        if (learn_mode_active) {
-            start_learn_for_action(ACTION_FILE_NEXT);
-        } else if (common_state && common_state->file_list) {
-            regroove_filelist_next(common_state->file_list);
+    // Only show prev/next buttons if a file list was loaded
+    if (common_state && common_state->file_list) {
+        ImGui::SameLine();
+        if (ImGui::Button(">", ImVec2(BUTTON_SIZE, BUTTON_SIZE))) {
+            if (learn_mode_active) {
+                start_learn_for_action(ACTION_FILE_NEXT);
+            } else {
+                regroove_filelist_next(common_state->file_list);
+            }
         }
     }
     ImGui::EndGroup();
@@ -9131,24 +9232,20 @@ static void ShowMainUI() {
                         regroove_common_save_device_config(common_state, current_config_file);
                     }
 
-                    // Hot-swap audio device
+                    // Hot-swap audio device - close old stream and create new one
+                    if (audio_stream) {
+                        SDL_DestroyAudioStream(audio_stream);
+                        audio_stream = nullptr;
+                    }
                     if (audio_device_id) {
                         SDL_CloseAudioDevice(audio_device_id);
+                        audio_device_id = 0;
                     }
 
-                    SDL_AudioSpec spec;
-                    SDL_zero(spec);
-                    spec.freq = 48000;
-                    spec.format = AUDIO_S16SYS;
-                    spec.channels = 2;
-                    spec.samples = 256;
-                    spec.callback = audio_callback;
-                    spec.userdata = NULL;
-
-                    audio_device_id = SDL_OpenAudioDevice(NULL, 0, &spec, NULL, 0); // NULL = default device
-                    if (audio_device_id > 0) {
+                    // Create new audio stream for default device
+                    audio_stream = sdl_audio_create_output_stream(48000, audio_callback, nullptr, &audio_device_id);
+                    if (audio_stream) {
                         common_state->audio_device_id = audio_device_id;
-                        SDL_PauseAudioDevice(audio_device_id, 0); // Start immediately
                         printf("Audio output switched to: Default\n");
                     } else {
                         printf("Failed to open default audio device: %s\n", SDL_GetError());
@@ -9166,25 +9263,37 @@ static void ShowMainUI() {
                             regroove_common_save_device_config(common_state, current_config_file);
                         }
 
-                        // Hot-swap audio device
+                        // Hot-swap audio device - close old stream and create new one
+                        if (audio_stream) {
+                            SDL_DestroyAudioStream(audio_stream);
+                            audio_stream = nullptr;
+                        }
                         if (audio_device_id) {
                             SDL_CloseAudioDevice(audio_device_id);
+                            audio_device_id = 0;
                         }
 
+                        // Open specific device
                         SDL_AudioSpec spec;
-                        SDL_zero(spec);
                         spec.freq = 48000;
-                        spec.format = AUDIO_S16SYS;
+                        spec.format = SDL_AUDIO_F32;
                         spec.channels = 2;
-                        spec.samples = 256;
-                        spec.callback = audio_callback;
-                        spec.userdata = NULL;
 
-                        audio_device_id = SDL_OpenAudioDevice(audio_device_names[i].c_str(), 0, &spec, NULL, 0);
-                        if (audio_device_id > 0) {
-                            common_state->audio_device_id = audio_device_id;
-                            SDL_PauseAudioDevice(audio_device_id, 0); // Start immediately
-                            printf("Audio output switched to: %s\n", audio_device_names[i].c_str());
+                        audio_device_id = SDL_OpenAudioDevice(audio_device_ids[i], &spec);
+                        if (audio_device_id) {
+                            // Create and bind stream
+                            audio_stream = SDL_CreateAudioStream(&spec, &spec);
+                            if (audio_stream) {
+                                SDL_SetAudioStreamGetCallback(audio_stream, audio_callback, nullptr);
+                                SDL_BindAudioStream(audio_device_id, audio_stream);
+                                SDL_ResumeAudioDevice(audio_device_id);
+                                common_state->audio_device_id = audio_device_id;
+                                printf("Audio output switched to: %s\n", audio_device_names[i].c_str());
+                            } else {
+                                SDL_CloseAudioDevice(audio_device_id);
+                                audio_device_id = 0;
+                                printf("Failed to create audio stream: %s\n", SDL_GetError());
+                            }
                         } else {
                             printf("Failed to open audio device: %s\n", SDL_GetError());
                         }
@@ -9243,28 +9352,34 @@ static void ShowMainUI() {
                         audio_input_device_id = 0;
                     }
 
-                    // Open new input device
-                    SDL_AudioSpec input_spec, obtained_spec;
-                    SDL_zero(input_spec);
+                    // Open new audio input device
+                    SDL_AudioSpec input_spec;
                     input_spec.freq = 48000;
-                    input_spec.format = AUDIO_S16SYS;
+                    input_spec.format = SDL_AUDIO_F32;
                     input_spec.channels = 2;
-                    input_spec.samples = 256;
-                    input_spec.callback = audio_input_callback;
-                    input_spec.userdata = NULL;
 
-                    audio_input_device_id = SDL_OpenAudioDevice(audio_input_device_names[i].c_str(), 1, &input_spec, &obtained_spec, SDL_AUDIO_ALLOW_SAMPLES_CHANGE);
-                    if (audio_input_device_id > 0) {
-                        selected_audio_input_device = i;
-                        SDL_PauseAudioDevice(audio_input_device_id, 0); // Start capturing immediately
+                    audio_input_device_id = SDL_OpenAudioDevice(audio_input_device_ids[i], &input_spec);
+                    if (audio_input_device_id) {
+                        // Create and bind input stream
+                        audio_input_stream = SDL_CreateAudioStream(&input_spec, &input_spec);
+                        if (audio_input_stream) {
+                            SDL_SetAudioStreamPutCallback(audio_input_stream, audio_input_callback, nullptr);
+                            SDL_BindAudioStream(audio_input_device_id, audio_input_stream);
+                            SDL_ResumeAudioDevice(audio_input_device_id);
+                            selected_audio_input_device = i;
 
-                        // Save to config
-                        if (common_state) {
-                            common_state->device_config.audio_input_device = i;
-                            regroove_common_save_device_config(common_state, current_config_file);
+                            // Save to config
+                            if (common_state) {
+                                common_state->device_config.audio_input_device = i;
+                                regroove_common_save_device_config(common_state, current_config_file);
+                            }
+                            printf("Audio input set to: %s\n", audio_input_device_names[i].c_str());
+                        } else {
+                            SDL_CloseAudioDevice(audio_input_device_id);
+                            audio_input_device_id = 0;
+                            printf("Failed to create audio input stream: %s\n", SDL_GetError());
+                            selected_audio_input_device = -1;
                         }
-                        printf("Audio input set to: %s (requested: %d samples, obtained: %d samples)\n",
-                               audio_input_device_names[i].c_str(), input_spec.samples, obtained_spec.samples);
                     } else {
                         printf("Failed to open audio input device: %s\n", SDL_GetError());
                         selected_audio_input_device = -1;
@@ -9854,21 +9969,17 @@ static void ShowMainUI() {
                     // Only trigger on click, not continuous drag
                     if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
                         // Lock audio to ensure jump and mute-apply happen atomically
-                        if (audio_device_id) SDL_LockAudioDevice(audio_device_id);
                         regroove_set_position_row(mod, row);
                         // Apply channel settings AFTER jumping because the jump may reset mute/pan states
                         apply_channel_settings();
-                        if (audio_device_id) SDL_UnlockAudioDevice(audio_device_id);
                     }
                     // Or if dragging, only update when we're on a different row than current playback
                     else if (ImGui::IsMouseDown(ImGuiMouseButton_Left) && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 2.0f)) {
                         if (row != current_row) {
                             // Lock audio to ensure jump and mute-apply happen atomically
-                            if (audio_device_id) SDL_LockAudioDevice(audio_device_id);
                             regroove_set_position_row(mod, row);
                             // Apply channel settings AFTER jumping because the jump may reset mute/pan states
                             apply_channel_settings();
-                            if (audio_device_id) SDL_UnlockAudioDevice(audio_device_id);
                         }
                     }
                 }
@@ -10006,11 +10117,12 @@ int main(int argc, char* argv[]) {
         }
         else if (!module_path) module_path = argv[i];
     }
-    if (!module_path) {
-        fprintf(stderr, "Usage: %s directory|file.mod [-m mididevice] [-c config.ini] [--dump-config]\n", argv[0]);
-        fprintf(stderr, "  --dump-config  Generate default config file and exit\n");
-        return 1;
-    }
+    // Allow starting without a module file - use file dialog to load
+    // if (!module_path) {
+    //     fprintf(stderr, "Usage: %s directory|file.mod [-m mididevice] [-c config.ini] [--dump-config]\n", argv[0]);
+    //     fprintf(stderr, "  --dump-config  Generate default config file and exit\n");
+    //     return 1;
+    // }
 
     // Create common state
     common_state = regroove_common_create();
@@ -10076,68 +10188,74 @@ int main(int argc, char* argv[]) {
         midi_output_enabled = true;
     }
 
-    // Load file list from directory
-    std::string dir_path;
-    struct stat st;
-    if (stat(module_path, &st) == 0 && S_ISDIR(st.st_mode)) {
-        // It's a directory
-        dir_path = module_path;
-    } else {
-        // It's a file, get the parent directory
-        size_t last_slash = std::string(module_path).find_last_of("/\\");
-        if (last_slash != std::string::npos) {
-            dir_path = std::string(module_path).substr(0, last_slash);
+    // Load file list from directory (only if path provided - for headless use)
+    if (module_path) {
+        std::string dir_path;
+        struct stat st;
+        if (stat(module_path, &st) == 0 && S_ISDIR(st.st_mode)) {
+            // It's a directory
+            dir_path = module_path;
         } else {
-            dir_path = ".";
+            // It's a file, get the parent directory
+            size_t last_slash = std::string(module_path).find_last_of("/\\");
+            if (last_slash != std::string::npos) {
+                dir_path = std::string(module_path).substr(0, last_slash);
+            } else {
+                dir_path = ".";
+            }
+        }
+
+        common_state->file_list = regroove_filelist_create();
+        if (!common_state->file_list ||
+            regroove_filelist_load(common_state->file_list, dir_path.c_str()) <= 0) {
+            fprintf(stderr, "Failed to load file list from directory: %s\n", dir_path.c_str());
+            regroove_common_destroy(common_state);
+            return 1;
         }
     }
 
-    common_state->file_list = regroove_filelist_create();
-    if (!common_state->file_list ||
-        regroove_filelist_load(common_state->file_list, dir_path.c_str()) <= 0) {
-        fprintf(stderr, "Failed to load file list from directory: %s\n", dir_path.c_str());
-        regroove_common_destroy(common_state);
+    // SDL3: SDL_Init returns bool (true=success, false=failure)
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
+        const char* error = SDL_GetError();
+        fprintf(stderr, "SDL_Init failed: %s\n", error);
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Initialization Error",
+                                 SDL_GetError(), NULL);
         return 1;
     }
-
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) return 1;
 
     // Initialize audio input ring buffer with configured size
     audio_input_init(common_state->device_config.audio_input_buffer_ms);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-    SDL_Window* window = SDL_CreateWindow(
-        appname, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        1200, 640, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE
-    );
-    if (!window) return 1;
+    // SDL3: CreateWindow no longer takes x,y position parameters
+    SDL_Window* window = SDL_CreateWindow(appname, 1280, 720, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
+    if (!window) {
+        const char* error = SDL_GetError();
+        fprintf(stderr, "SDL_CreateWindow failed: %s\n", error);
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Window Creation Error", error, NULL);
+        return 1;
+    }
+    SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
     SDL_GLContext gl_ctx = SDL_GL_CreateContext(window);
     SDL_GL_MakeCurrent(window, gl_ctx);
     SDL_GL_SetSwapInterval(1);
-    SDL_AudioSpec spec;
-    SDL_zero(spec);
-    spec.freq = 48000;
-    spec.format = AUDIO_S16SYS;
-    spec.channels = 2;
-    spec.samples = 256;
-    spec.callback = audio_callback;
-    spec.userdata = NULL;
-    // Open audio device (use selected device or NULL for default)
-    const char* device_name = NULL;
-    if (selected_audio_device >= 0) {
-        device_name = SDL_GetAudioDeviceName(selected_audio_device, 0);
-    }
-    audio_device_id = SDL_OpenAudioDevice(device_name, 0, &spec, NULL, 0);
-    if (audio_device_id == 0) {
-        fprintf(stderr, "SDL_OpenAudioDevice failed: %s\n", SDL_GetError());
+
+    // Initialize SDL3 audio using shared module
+    if (!sdl_audio_init()) {
+        fprintf(stderr, "SDL audio initialization failed\n");
         return 1;
     }
+
+    // Create audio output stream using shared SDL3 audio init
+    audio_stream = sdl_audio_create_output_stream(48000, audio_callback, nullptr, &audio_device_id);
+    if (!audio_stream) {
+        fprintf(stderr, "Failed to create audio output stream\n");
+        return 1;
+    }
+
     // Store audio device ID in common state for use by common functions
     common_state->audio_device_id = audio_device_id;
-
-    // Start audio device immediately (for input passthrough to work without playback)
-    SDL_PauseAudioDevice(audio_device_id, 0);
     printf("Audio output device started (always active for input passthrough)\n");
     // Initialize LCD display
     lcd_display = lcd_init(LCD_COLS, LCD_ROWS);
@@ -10156,7 +10274,7 @@ int main(int argc, char* argv[]) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ApplyFlatBlackRedSkin();
-    ImGui_ImplSDL2_InitForOpenGL(window, gl_ctx);
+    ImGui_ImplSDL3_InitForOpenGL(window, gl_ctx);
     ImGui_ImplOpenGL2_Init();
     //if (load_module(module_path) != 0) return 1;
     int midi_ports = midi_list_ports();
@@ -10201,8 +10319,8 @@ int main(int argc, char* argv[]) {
     while (running) {
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
-            ImGui_ImplSDL2_ProcessEvent(&e);
-            if (e.type == SDL_QUIT) running = false;
+            ImGui_ImplSDL3_ProcessEvent(&e);
+            if (e.type == SDL_EVENT_QUIT) running = false;
             handle_keyboard(e, window); // unified handler!
         }
         if (common_state && common_state->player) regroove_process_commands(common_state->player);
@@ -10243,7 +10361,7 @@ int main(int argc, char* argv[]) {
         }
 
         ImGui_ImplOpenGL2_NewFrame();
-        ImGui_ImplSDL2_NewFrame();
+        ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
         ShowMainUI();
         ImGui::Render();
@@ -10257,11 +10375,11 @@ int main(int argc, char* argv[]) {
     }
     midi_deinit();
     if (audio_device_id) {
-        SDL_PauseAudioDevice(audio_device_id, 1);
+        SDL_PauseAudioDevice(audio_device_id);
         SDL_CloseAudioDevice(audio_device_id);
     }
     if (audio_input_device_id) {
-        SDL_PauseAudioDevice(audio_input_device_id, 1);
+        SDL_PauseAudioDevice(audio_input_device_id);
         SDL_CloseAudioDevice(audio_input_device_id);
     }
 
@@ -10278,9 +10396,9 @@ int main(int argc, char* argv[]) {
     }
 
     ImGui_ImplOpenGL2_Shutdown();
-    ImGui_ImplSDL2_Shutdown();
+    ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();
-    SDL_GL_DeleteContext(gl_ctx);
+    SDL_GL_DestroyContext(gl_ctx);
     SDL_DestroyWindow(window);
 
     // Cleanup audio input

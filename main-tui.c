@@ -5,7 +5,7 @@
 #include <fcntl.h>
 #include <termios.h>
 #include <sys/stat.h>
-#include <SDL.h>
+#include <SDL3/SDL.h>
 #include "regroove_common.h"
 #include "midi.h"
 #include "midi_output.h"

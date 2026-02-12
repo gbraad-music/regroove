@@ -27,7 +27,7 @@ cp "$BUILD_DIR/regroove-gui.exe" "$PACKAGE_DIR/"
 
 # Copy required DLLs
 echo "Copying DLLs..."
-cp "$MINGW_BIN/SDL2.dll" "$PACKAGE_DIR/"
+cp "$MINGW_BIN/SDL3.dll" "$PACKAGE_DIR/"
 cp "$MINGW_BIN/libwinpthread-1.dll" "$PACKAGE_DIR/"
 cp "$MINGW_BIN/zlib1.dll" "$PACKAGE_DIR/"
 

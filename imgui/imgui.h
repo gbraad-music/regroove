@@ -33,6 +33,11 @@
 #define IMGUI_HAS_TABLE             // Added BeginTable() - from IMGUI_VERSION_NUM >= 18000
 #define IMGUI_HAS_TEXTURES          // Added ImGuiBackendFlags_RendererHasTextures - from IMGUI_VERSION_NUM >= 19198
 
+// Multi-pointer support
+#ifndef IMGUI_MAX_POINTERS
+#define IMGUI_MAX_POINTERS  10      // Maximum number of simultaneous touch pointers/fingers to track
+#endif
+
 /*
 
 Index of this file:
@@ -2493,6 +2498,10 @@ struct ImGuiIO
     IMGUI_API void  AddMouseButtonEvent(int button, bool down);             // Queue a mouse button change
     IMGUI_API void  AddMouseWheelEvent(float wheel_x, float wheel_y);       // Queue a mouse wheel update. wheel_y<0: scroll down, wheel_y>0: scroll up, wheel_x<0: scroll right, wheel_x>0: scroll left.
     IMGUI_API void  AddMouseSourceEvent(ImGuiMouseSource source);           // Queue a mouse source change (Mouse/TouchScreen/Pen)
+
+    // Multi-pointer input functions (for multi-touch support)
+    IMGUI_API void  AddMousePosEventEx(int pointer_id, float x, float y);   // Queue a mouse position update for specific pointer (0-9). Also updates pointer 0 legacy fields.
+    IMGUI_API void  AddMouseButtonEventEx(int pointer_id, int button, bool down); // Queue a mouse button change for specific pointer (0-9). Also updates pointer 0 legacy fields.
     IMGUI_API void  AddFocusEvent(bool focused);                            // Queue a gain/loss of focus for the application (generally based on OS/platform focus of your window)
     IMGUI_API void  AddInputCharacter(unsigned int c);                      // Queue a new character input
     IMGUI_API void  AddInputCharacterUTF16(ImWchar16 c);                    // Queue a new character input from a UTF-16 character, it can be a surrogate
@@ -2571,6 +2580,18 @@ struct ImGuiIO
     bool        AppAcceptingEvents;                 // Only modify via SetAppAcceptingEvents()
     ImWchar16   InputQueueSurrogate;                // For AddInputCharacterUTF16()
     ImVector<ImWchar> InputQueueCharacters;         // Queue of _characters_ input (obtained by platform backend). Fill using AddInputCharacter() helper.
+
+    // Multi-pointer state (for multi-touch support)
+    // - Pointer 0 is synchronized with the regular MousePos/MouseDown[] fields above for backwards compatibility
+    // - Use AddMousePosEventEx/AddMouseButtonEventEx with pointer_id parameter to update specific pointers
+    int         ActivePointerCount;                 // Number of currently active pointers (fingers/touches)
+    ImVec2      MousePosMulti[IMGUI_MAX_POINTERS];  // Position for each pointer (set to -FLT_MAX,-FLT_MAX if inactive)
+    bool        MouseDownMulti[IMGUI_MAX_POINTERS][5]; // Button state for each pointer
+    bool        MousePointerActive[IMGUI_MAX_POINTERS]; // Whether each pointer is currently active/touching
+    ImGuiID     ActiveWidgetPointer;                // Which pointer ID currently owns the active widget (for exclusive interaction)
+    bool        MouseClickedMulti[IMGUI_MAX_POINTERS][5]; // Button went from !Down to Down for each pointer
+    bool        MouseReleasedMulti[IMGUI_MAX_POINTERS][5]; // Button went from Down to !Down for each pointer
+    float       MouseDownDurationMulti[IMGUI_MAX_POINTERS][5]; // Duration each button has been down for each pointer
 
     // Legacy: before 1.87, we required backend to fill io.KeyMap[] (imgui->native map) during initialization and io.KeysDown[] (native indices) every frame.
     // This is still temporarily supported as a legacy feature. However the new preferred scheme is for backend to call io.AddKeyEvent().
