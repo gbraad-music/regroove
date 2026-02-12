@@ -4018,7 +4018,7 @@ static void ApplyFlatBlackRedSkin()
     s.ChildBorderSize  = 1.0f;
     s.WindowBorderSize = 0.0f;
     s.FrameBorderSize  = 0.0f;
-    s.GrabMinSize      = 20.0f;  // Larger grab handle for touch-friendly sliders
+    s.GrabMinSize      = 40.0f;  // Larger grab handle for touch-friendly sliders (ALL sliders)
 
     ImVec4* c = s.Colors;
     ImVec4 black = ImVec4(0,0,0,1);
@@ -4258,36 +4258,48 @@ static void ShowMainUI() {
         if (learn_mode_active) {
             start_learn_for_action(ACTION_FILE_LOAD);
         } else {
-#ifdef __ANDROID__
-            // Android: Open Android file picker via JNI
-            JNIEnv* env = (JNIEnv*)SDL_GetAndroidJNIEnv();
-            jobject activity = (jobject)SDL_GetAndroidActivity();
-            if (env && activity) {
-                jclass activity_class = env->GetObjectClass(activity);
-                jclass main_activity_class = env->FindClass("nl/gbraad/regroove/MainActivity");
-                if (main_activity_class) {
-                    jmethodID openFilePickerMethod = env->GetStaticMethodID(main_activity_class, "openFilePicker", "()V");
-                    if (openFilePickerMethod) {
-                        env->CallStaticVoidMethod(main_activity_class, openFilePickerMethod);
-                    }
-                    env->DeleteLocalRef(main_activity_class);
+            // If file_list exists (directory specified), load current file from list
+            // Otherwise, open file dialog
+            if (common_state && common_state->file_list) {
+                // Directory mode: Load the current file from the list
+                static char current_path[512];
+                const char* current_file = regroove_filelist_get_current_path(common_state->file_list, current_path, sizeof(current_path));
+                if (current_file) {
+                    load_module(current_file);
                 }
-                env->DeleteLocalRef(activity_class);
-            }
+            } else {
+                // No directory: Open file dialog
+#ifdef __ANDROID__
+                // Android: Open Android file picker via JNI
+                JNIEnv* env = (JNIEnv*)SDL_GetAndroidJNIEnv();
+                jobject activity = (jobject)SDL_GetAndroidActivity();
+                if (env && activity) {
+                    jclass activity_class = env->GetObjectClass(activity);
+                    jclass main_activity_class = env->FindClass("nl/gbraad/regroove/MainActivity");
+                    if (main_activity_class) {
+                        jmethodID openFilePickerMethod = env->GetStaticMethodID(main_activity_class, "openFilePicker", "()V");
+                        if (openFilePickerMethod) {
+                            env->CallStaticVoidMethod(main_activity_class, openFilePickerMethod);
+                        }
+                        env->DeleteLocalRef(main_activity_class);
+                    }
+                    env->DeleteLocalRef(activity_class);
+                }
 #else
-            // Desktop (Windows/Linux): Open native file dialog for ALL files
-            const char* selected = tinyfd_openFileDialog(
-                "Select Module File",
-                NULL,
-                0,      // No filter patterns - accept all files
-                NULL,   // No filter
-                NULL,   // No description
-                0       // Single file selection
-            );
-            if (selected) {
-                load_module(selected);
-            }
+                // Desktop (Windows/Linux): Open native file dialog for ALL files
+                const char* selected = tinyfd_openFileDialog(
+                    "Select Module File",
+                    NULL,
+                    0,      // No filter patterns - accept all files
+                    NULL,   // No filter
+                    NULL,   // No description
+                    0       // Single file selection
+                );
+                if (selected) {
+                    load_module(selected);
+                }
 #endif
+            }
         }
     }
     // Only show prev/next buttons if a file list was loaded

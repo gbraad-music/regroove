@@ -627,6 +627,10 @@ Regroove *regroove_create(const char *filename, double samplerate) {
     // Set stereo separation (OPENMPT_MODULE_RENDER_STEREOSEPARATION_PERCENT = 2)
     openmpt_module_set_render_param(g->mod, 2, g->stereo_separation);
 
+    // Set master gain boost (OPENMPT_MODULE_RENDER_MASTERGAIN_MILLIBEL = 1)
+    // +6 dB = 600 millibels (modest boost to compensate for libopenmpt's soft output)
+    openmpt_module_set_render_param(g->mod, 1, 600);
+
     // Set dither
     openmpt_module_ctl_set_integer(g->mod, "dither", g->dither);
 
