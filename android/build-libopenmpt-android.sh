@@ -1,6 +1,6 @@
 #!/bin/bash
-# Single entry point to build Regroove for Android
-# This script builds all dependencies and creates the APK
+# Script to build libopenmpt for Android
+# Based on build-libopenmpt-mingw.sh approach
 
 set -e
 
@@ -8,9 +8,9 @@ set -e
 LIBOPENMPT_VERSION="0.7.11"
 LIBOPENMPT_URL="https://lib.openmpt.org/files/libopenmpt/src/libopenmpt-${LIBOPENMPT_VERSION}+release.autotools.tar.gz"
 BUILD_DIR="build-libopenmpt-android"
-ANDROID_NDK="${ANDROID_NDK_HOME:-$HOME/Android/Sdk/ndk/25.2.9519653}"
+ANDROID_NDK="${ANDROID_NDK_HOME:-$HOME/Android/Sdk/ndk-bundle}"
 ANDROID_API=29
-INSTALL_DIR="$(pwd)/android/app/src/main/cpp/libopenmpt"
+INSTALL_DIR="$(pwd)/app/src/main/cpp/libopenmpt"
 
 # Check if Android NDK is installed
 if [ ! -d "$ANDROID_NDK" ]; then
@@ -23,9 +23,7 @@ if [ ! -d "$ANDROID_NDK" ]; then
     exit 1
 fi
 
-echo "==================================================================="
-echo "Building Regroove for Android"
-echo "==================================================================="
+echo "=== Building libopenmpt for Android ==="
 echo "Version: $LIBOPENMPT_VERSION"
 echo "NDK: $ANDROID_NDK"
 echo "Install to: $INSTALL_DIR"
@@ -48,14 +46,8 @@ build_for_arch() {
     local TOOLCHAIN_PREFIX=$3
 
     echo ""
-    echo "=== Building libopenmpt for $ABI ($ARCH) ==="
+    echo "=== Building for $ABI ($ARCH) ==="
     echo ""
-
-    # Check if already built
-    if [ -f "${INSTALL_DIR}/${ABI}/libopenmpt.so" ]; then
-        echo "✓ libopenmpt already built for $ABI (skipping)"
-        return 0
-    fi
 
     # Extract fresh copy
     rm -rf "libopenmpt-${LIBOPENMPT_VERSION}+release.autotools-${ABI}"
@@ -72,10 +64,7 @@ build_for_arch() {
     export RANLIB="$TOOLCHAIN/bin/llvm-ranlib"
     export STRIP="$TOOLCHAIN/bin/llvm-strip"
 
-    # Configure for Android - prevent pkg-config from finding system libraries
-    export PKG_CONFIG_LIBDIR=""
-    export PKG_CONFIG_PATH=""
-
+    # Configure for Android
     ./configure \
         --host=${TOOLCHAIN_PREFIX%-} \
         --prefix="${INSTALL_DIR}/${ABI}" \
@@ -87,17 +76,13 @@ build_for_arch() {
         --without-mpg123 \
         --without-vorbis \
         --without-vorbisfile \
-        --without-ogg \
         --without-portaudio \
         --without-portaudiocpp \
         --without-pulseaudio \
         --without-sndfile \
         --without-flac \
-        --disable-libopenmpt_modplug \
-        FLAC_CFLAGS=" " \
-        FLAC_LIBS=" " \
-        CFLAGS="-O2 -fPIC -mno-outline-atomics" \
-        CXXFLAGS="-O2 -fPIC -std=c++17 -mno-outline-atomics"
+        CFLAGS="-O2 -fPIC" \
+        CXXFLAGS="-O2 -fPIC -std=c++17"
 
     # Build
     make -j$(nproc)
@@ -105,9 +90,9 @@ build_for_arch() {
     # Install
     make install
 
-    # Copy just the .so to the right location (from lib not bin)
+    # Copy just the .so to the right location
     mkdir -p "${INSTALL_DIR}/${ABI}"
-    cp -v "${INSTALL_DIR}/${ABI}/lib/libopenmpt.so" "${INSTALL_DIR}/${ABI}/"
+    cp -v "bin/libopenmpt.so" "${INSTALL_DIR}/${ABI}/"
 
     cd ..
 
@@ -115,18 +100,18 @@ build_for_arch() {
     echo "✓ Built for $ABI"
 }
 
-# Build for ARM64 only
+# Build for ARM64
 build_for_arch "arm64" "arm64-v8a" "aarch64-linux-android"
 
-# Copy headers (only need one copy, already installed)
-echo ""
-echo "=== Headers already installed to ${INSTALL_DIR}/include ==="
-# Headers are already in ${INSTALL_DIR}/arm64-v8a/include/libopenmpt/ from make install
-# Copy to a shared location
-mkdir -p "${INSTALL_DIR}/include"
-cp -rv "${INSTALL_DIR}/arm64-v8a/include/libopenmpt" "${INSTALL_DIR}/include/" || true
+# Build for ARM32
+build_for_arch "arm" "armeabi-v7a" "armv7a-linux-androideabi"
 
-cd ..
+# Copy headers (only need one copy)
+echo ""
+echo "=== Copying headers ==="
+mkdir -p "${INSTALL_DIR}/include"
+cp -rv "libopenmpt-${LIBOPENMPT_VERSION}+release.autotools-arm64-v8a/libopenmpt" "${INSTALL_DIR}/include/" || true
+cp -v "libopenmpt-${LIBOPENMPT_VERSION}+release.autotools-arm64-v8a/bin/libopenmpt_config.h" "${INSTALL_DIR}/include/libopenmpt/" || true
 
 echo ""
 echo "==================================================================="
@@ -135,32 +120,10 @@ echo "==================================================================="
 echo ""
 echo "Libraries installed to:"
 echo "  ${INSTALL_DIR}/arm64-v8a/libopenmpt.so"
+echo "  ${INSTALL_DIR}/armeabi-v7a/libopenmpt.so"
 echo "  ${INSTALL_DIR}/include/libopenmpt/"
 echo ""
-
-# Build the APK
-echo "==================================================================="
-echo "Building Android APK"
-echo "==================================================================="
-echo ""
-
-cd android
-
-# Build debug APK using system gradle
-if [ -f "gradlew" ]; then
-    ./gradlew assembleDebug
-else
-    gradle assembleDebug
-fi
-
-echo ""
-echo "==================================================================="
-echo "✓ Build complete!"
-echo "==================================================================="
-echo ""
-echo "APK location:"
-find app/build/outputs/apk -name "*.apk" -type f
-echo ""
-echo "Install with:"
-echo "  adb install app/build/outputs/apk/debug/app-debug.apk"
+echo "You can now build regroove with:"
+echo "  cd android"
+echo "  gradle assembleDebug"
 echo ""

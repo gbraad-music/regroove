@@ -1,9 +1,14 @@
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
+#ifdef __ANDROID__
+#include "imgui_impl_opengl3.h"
+#include <GLES3/gl3.h>
+#else
 #include "imgui_impl_opengl2.h"
+#include <SDL3/SDL_opengl.h>
+#endif
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
-#include <SDL3/SDL_opengl.h>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -58,6 +63,18 @@ static bool loop_enabled = false;
 static bool playing = false;
 static int pattern = 1, order = 1, total_rows = 64;
 static float loop_blink = 0.0f;
+
+// DPI scaling for high-density displays (especially Android)
+static float g_dpi_scale = 1.0f;
+
+// SDL multitouch tracking (up to 10 simultaneous touches)
+#define MAX_TOUCHES 10
+struct TouchPoint {
+    bool active;
+    float x;
+    float y;
+};
+static TouchPoint g_touch_points[MAX_TOUCHES] = {0};
 
 // UI mode state
 enum UIMode {
@@ -611,6 +628,18 @@ static int load_module(const char *path) {
 
     return 0;
 }
+
+#ifdef __ANDROID__
+// JNI callback for file selection from Android file picker
+extern "C" JNIEXPORT void JNICALL
+Java_nl_gbraad_regroove_MainActivity_nativeFileSelected(JNIEnv* env, jclass cls, jstring path) {
+    const char* path_str = env->GetStringUTFChars(path, nullptr);
+    if (path_str) {
+        load_module(path_str);
+        env->ReleaseStringUTFChars(path, path_str);
+    }
+}
+#endif
 
 // -----------------------------------------------------------------------------
 // Unified Input Actions
@@ -4094,24 +4123,24 @@ static void ShowMainUI() {
         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
     ImGui::Begin(appname, nullptr, rootFlags);
 
-    // Layout constants
-    const float BUTTON_SIZE = 48.0f;
-    const float SIDE_MARGIN = 10.0f;
-    const float TOP_MARGIN = 8.0f;
-    const float LEFT_PANEL_WIDTH = 190.0f;
-    const float LCD_HEIGHT = 90.0f;
-    const float TRANSPORT_GAP = 10.0f;
-    const float SEQUENCER_HEIGHT = 70.0f;
-    const float GAP_ABOVE_SEQUENCER = 8.0f;
-    const float BOTTOM_MARGIN = 6.0f;
-    const float SOLO_SIZE = 34.0f;
-    const float MUTE_SIZE = 34.0f;
-    const float BASE_SLIDER_W = 44.0f;
-    const float BASE_SPACING = 26.0f;
-    const float MIN_SLIDER_HEIGHT = 140.0f;
-    const float STEP_GAP = 6.0f;
-    const float STEP_MIN = 28.0f;
-    const float STEP_MAX = 60.0f;
+    // Layout constants (scaled for DPI)
+    const float BUTTON_SIZE = 48.0f * g_dpi_scale;
+    const float SIDE_MARGIN = 10.0f * g_dpi_scale;
+    const float TOP_MARGIN = 8.0f * g_dpi_scale;
+    const float LEFT_PANEL_WIDTH = 190.0f * g_dpi_scale;
+    const float LCD_HEIGHT = 90.0f * g_dpi_scale;
+    const float TRANSPORT_GAP = 10.0f * g_dpi_scale;
+    const float SEQUENCER_HEIGHT = 70.0f * g_dpi_scale;
+    const float GAP_ABOVE_SEQUENCER = 8.0f * g_dpi_scale;
+    const float BOTTOM_MARGIN = 6.0f * g_dpi_scale;
+    const float SOLO_SIZE = 34.0f * g_dpi_scale;
+    const float MUTE_SIZE = 34.0f * g_dpi_scale;
+    const float BASE_SLIDER_W = 44.0f * g_dpi_scale;
+    const float BASE_SPACING = 26.0f * g_dpi_scale;
+    const float MIN_SLIDER_HEIGHT = 140.0f * g_dpi_scale;
+    const float STEP_GAP = 6.0f * g_dpi_scale;
+    const float STEP_MIN = 28.0f * g_dpi_scale;
+    const float STEP_MAX = 60.0f * g_dpi_scale;
     const float IMGUI_LAYOUT_COMPENSATION = SEQUENCER_HEIGHT / 2;
 
     float fullW = io.DisplaySize.x;
@@ -8798,7 +8827,7 @@ static void ShowMainUI() {
             // Enable button at top, fader(s) in middle
             // fx_spacing: tight spacing within effect groups (between faders in same group)
             // spacing: wider spacing between effect groups (same as volume panel fader spacing)
-            const float fx_spacing = 16.0f;
+            const float fx_spacing = 16.0f * g_dpi_scale;
             int col_index = 0;
 
             // --- DISTORTION GROUP ---
@@ -9914,12 +9943,12 @@ static void ShowMainUI() {
             ImGui::Dummy(ImVec2(0, 8.0f));
 
             // Calculate column widths
-            const float ROW_COL_WIDTH = 50.0f;
-            const float CHANNEL_COL_WIDTH = 140.0f;
-            const float MIN_CHANNEL_WIDTH = 100.0f;
+            const float ROW_COL_WIDTH = 50.0f * g_dpi_scale;
+            const float CHANNEL_COL_WIDTH = 140.0f * g_dpi_scale;
+            const float MIN_CHANNEL_WIDTH = 100.0f * g_dpi_scale;
 
             // Adjust channel width based on available space
-            float available_width = rightW - 64.0f - ROW_COL_WIDTH;
+            float available_width = rightW - (64.0f * g_dpi_scale) - ROW_COL_WIDTH;
             float channel_width = CHANNEL_COL_WIDTH;
             if (num_channels > 0) {
                 float total_needed = num_channels * CHANNEL_COL_WIDTH;
@@ -10226,6 +10255,21 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    // Configure SDL for multitouch support (before SDL_Init)
+#ifdef __ANDROID__
+    // CRITICAL: Don't pause when app goes to background - allows audio to continue
+    SDL_SetHint(SDL_HINT_ANDROID_BLOCK_ON_PAUSE, "0");
+    SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");  // Handle back button
+    SDL_SetHint("SDL_AUDIODRIVER", "android");
+
+    // Enable BOTH touch and mouse events on Android
+    // Touch events = raw multitouch data
+    // Mouse events = for ImGui compatibility
+    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "1");  // Keep touch→mouse (needed for ImGui)
+    SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");  // Don't need mouse→touch
+    SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");
+#endif
+
     // SDL3: SDL_Init returns bool (true=success, false=failure)
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
         const char* error = SDL_GetError();
@@ -10237,8 +10281,14 @@ int main(int argc, char* argv[]) {
 
     // Initialize audio input ring buffer with configured size
     audio_input_init(common_state->device_config.audio_input_buffer_ms);
+#ifdef __ANDROID__
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+#else
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
+#endif
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
     // SDL3: CreateWindow no longer takes x,y position parameters
     SDL_Window* window = SDL_CreateWindow(appname, 1280, 720, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
@@ -10286,8 +10336,38 @@ int main(int argc, char* argv[]) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ApplyFlatBlackRedSkin();
+
+    // Scale UI for high-DPI displays (especially Android)
+    ImGuiIO& io = ImGui::GetIO();
+    g_dpi_scale = 1.0f;
+#ifdef __ANDROID__
+    // SDL3: Get display content scale
+    SDL_DisplayID display_id = SDL_GetPrimaryDisplay();
+    float content_scale = SDL_GetDisplayContentScale(display_id);
+    if (content_scale > 0.0f) {
+        g_dpi_scale = content_scale;
+        if (g_dpi_scale < 2.0f) g_dpi_scale = 2.0f;  // Minimum 2x for touch screens
+        if (g_dpi_scale > 3.0f) g_dpi_scale = 3.0f;  // Cap at 3x
+    }
+#endif
+
+    // Load font at proper size
+    ImFontConfig font_cfg;
+    font_cfg.SizePixels = 13.0f * g_dpi_scale;
+    font_cfg.OversampleH = 3;
+    font_cfg.OversampleV = 3;
+    io.Fonts->AddFontDefault(&font_cfg);
+
+    // Scale ImGui style to match DPI
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.ScaleAllSizes(g_dpi_scale);
+
     ImGui_ImplSDL3_InitForOpenGL(window, gl_ctx);
+#ifdef __ANDROID__
+    ImGui_ImplOpenGL3_Init("#version 300 es");
+#else
     ImGui_ImplOpenGL2_Init();
+#endif
     //if (load_module(module_path) != 0) return 1;
     int midi_ports = midi_list_ports();
     if (midi_ports > 0) {
@@ -10331,8 +10411,35 @@ int main(int argc, char* argv[]) {
     while (running) {
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
+            // Track finger events for multitouch
+            if (e.type == SDL_EVENT_FINGER_DOWN || e.type == SDL_EVENT_FINGER_MOTION || e.type == SDL_EVENT_FINGER_UP) {
+                int touch_id = (int)(e.tfinger.fingerID % MAX_TOUCHES);
+                ImVec2 display_size = ImGui::GetIO().DisplaySize;
+
+                // Update g_touch_points for multitouch functionality
+                if (e.type == SDL_EVENT_FINGER_UP) {
+                    g_touch_points[touch_id].active = false;
+                } else {
+                    g_touch_points[touch_id].x = e.tfinger.x * display_size.x;
+                    g_touch_points[touch_id].y = e.tfinger.y * display_size.y;
+                    g_touch_points[touch_id].active = true;
+                }
+            }
+
             ImGui_ImplSDL3_ProcessEvent(&e);
             if (e.type == SDL_EVENT_QUIT) running = false;
+
+            // Handle app going to background/foreground - keep audio running
+            if (e.type == SDL_EVENT_DID_ENTER_FOREGROUND) {
+                // App came back to foreground - resume audio if it was paused
+                if (audio_device_id) {
+                    SDL_ResumeAudioDevice(audio_device_id);
+                }
+                if (audio_input_device_id) {
+                    SDL_ResumeAudioDevice(audio_input_device_id);
+                }
+            }
+
             handle_keyboard(e, window); // unified handler!
         }
         if (common_state && common_state->player) regroove_process_commands(common_state->player);
@@ -10372,7 +10479,11 @@ int main(int argc, char* argv[]) {
             }
         }
 
+#ifdef __ANDROID__
+        ImGui_ImplOpenGL3_NewFrame();
+#else
         ImGui_ImplOpenGL2_NewFrame();
+#endif
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
         ShowMainUI();
@@ -10381,7 +10492,11 @@ int main(int argc, char* argv[]) {
         glViewport(0,0,(int)io.DisplaySize.x,(int)io.DisplaySize.y);
         glClearColor(0.0f,0.0f,0.0f,1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
+#ifdef __ANDROID__
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+#else
         ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());
+#endif
         SDL_GL_SwapWindow(window);
         SDL_Delay(10);
     }
@@ -10407,7 +10522,11 @@ int main(int argc, char* argv[]) {
         lcd_destroy(lcd_display);
     }
 
+#ifdef __ANDROID__
+    ImGui_ImplOpenGL3_Shutdown();
+#else
     ImGui_ImplOpenGL2_Shutdown();
+#endif
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();
     SDL_GL_DestroyContext(gl_ctx);

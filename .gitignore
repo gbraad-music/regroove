@@ -4,3 +4,19 @@ build-rtmidi-mingw/
 build-windows/
 regroove-*-windows-x64/
 regroove-*-windows-x64.zip
+
+# Android
+build-libopenmpt-android/
+android/app/build/
+android/app/.cxx/
+android/.gradle/
+android/local.properties
+android/app/src/main/cpp/libopenmpt/
+*.apk
+*.ap_
+*.dex
+*.class
+bin/
+gen/
+out/
+
