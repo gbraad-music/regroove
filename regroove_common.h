@@ -76,11 +76,9 @@ typedef struct {
     float fx_eq_low;                // 0.0 - 1.0
     float fx_eq_mid;                // 0.0 - 1.0
     float fx_eq_high;               // 0.0 - 1.0
-    float fx_compressor_threshold;  // 0.0 - 1.0
-    float fx_compressor_ratio;      // 0.0 - 1.0
-    float fx_compressor_attack;     // 0.0 - 1.0
-    float fx_compressor_release;    // 0.0 - 1.0
-    float fx_compressor_makeup;     // 0.0 - 1.0
+    float fx_reverb_room_size;      // 0.0 - 1.0
+    float fx_reverb_damping;        // 0.0 - 1.0
+    float fx_reverb_mix;            // 0.0 - 1.0
     float fx_delay_time;            // 0.0 - 1.0
     float fx_delay_feedback;        // 0.0 - 1.0
     float fx_delay_mix;             // 0.0 - 1.0

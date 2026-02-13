@@ -678,11 +678,11 @@ size_t sysex_build_fx_state_response(uint8_t target_device_id,
                                       const uint8_t *distortion_params,  // drive, mix
                                       const uint8_t *filter_params,      // cutoff, resonance
                                       const uint8_t *eq_params,          // low, mid, high
-                                      const uint8_t *compressor_params,  // threshold, ratio, attack, release, makeup
+                                      const uint8_t *reverb_params,      // room_size, damping, mix
                                       const uint8_t *delay_params,       // time, feedback, mix
                                       uint8_t *buffer, size_t buffer_size) {
     if (!buffer) return 0;
-    if (!distortion_params || !filter_params || !eq_params || !compressor_params || !delay_params) return 0;
+    if (!distortion_params || !filter_params || !eq_params || !reverb_params || !delay_params) return 0;
 
     // Fixed size: F0 7D <dev> <cmd> <32 data bytes> F7 = 37 bytes
     const size_t required = 37;
@@ -713,20 +713,18 @@ size_t sysex_build_fx_state_response(uint8_t target_device_id,
     buffer[pos++] = eq_params[1] & 0x7F;  // mid
     buffer[pos++] = eq_params[2] & 0x7F;  // high
 
-    // Compressor (bytes 11-15)
-    buffer[pos++] = compressor_params[0] & 0x7F;  // threshold
-    buffer[pos++] = compressor_params[1] & 0x7F;  // ratio
-    buffer[pos++] = compressor_params[2] & 0x7F;  // attack
-    buffer[pos++] = compressor_params[3] & 0x7F;  // release
-    buffer[pos++] = compressor_params[4] & 0x7F;  // makeup
+    // Reverb (bytes 11-13)
+    buffer[pos++] = reverb_params[0] & 0x7F;  // room_size
+    buffer[pos++] = reverb_params[1] & 0x7F;  // damping
+    buffer[pos++] = reverb_params[2] & 0x7F;  // mix
 
-    // Delay (bytes 16-18)
+    // Delay (bytes 14-16)
     buffer[pos++] = delay_params[0] & 0x7F;  // time
     buffer[pos++] = delay_params[1] & 0x7F;  // feedback
     buffer[pos++] = delay_params[2] & 0x7F;  // mix
 
-    // Reserved (bytes 19-31): 13 bytes
-    for (int i = 0; i < 13; i++) {
+    // Reserved (bytes 17-31): 15 bytes
+    for (int i = 0; i < 15; i++) {
         buffer[pos++] = 0x00;
     }
 
@@ -743,7 +741,7 @@ int sysex_parse_fx_state_response(const uint8_t *data, size_t data_len,
                                    uint8_t *out_distortion_params,  // 2 bytes
                                    uint8_t *out_filter_params,      // 2 bytes
                                    uint8_t *out_eq_params,          // 3 bytes
-                                   uint8_t *out_compressor_params,  // 5 bytes
+                                   uint8_t *out_reverb_params,      // 3 bytes
                                    uint8_t *out_delay_params) {     // 3 bytes
     // Minimum: 32 bytes
     if (!data || data_len < 32) return 0;
@@ -773,23 +771,21 @@ int sysex_parse_fx_state_response(const uint8_t *data, size_t data_len,
         out_eq_params[2] = data[10];  // high
     }
 
-    // Extract compressor (bytes 11-15)
-    if (out_compressor_params) {
-        out_compressor_params[0] = data[11];  // threshold
-        out_compressor_params[1] = data[12];  // ratio
-        out_compressor_params[2] = data[13];  // attack
-        out_compressor_params[3] = data[14];  // release
-        out_compressor_params[4] = data[15];  // makeup
+    // Extract reverb (bytes 11-13)
+    if (out_reverb_params) {
+        out_reverb_params[0] = data[11];  // room_size
+        out_reverb_params[1] = data[12];  // damping
+        out_reverb_params[2] = data[13];  // mix
     }
 
-    // Extract delay (bytes 16-18)
+    // Extract delay (bytes 14-16)
     if (out_delay_params) {
-        out_delay_params[0] = data[16];  // time
-        out_delay_params[1] = data[17];  // feedback
-        out_delay_params[2] = data[18];  // mix
+        out_delay_params[0] = data[14];  // time
+        out_delay_params[1] = data[15];  // feedback
+        out_delay_params[2] = data[16];  // mix
     }
 
-    // Note: Reserved bytes (19-31) are ignored
+    // Note: Reserved bytes (17-31) are ignored
 
     return 1;
 }

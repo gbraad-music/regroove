@@ -194,11 +194,9 @@ RegrooveCommonState* regroove_common_create(void) {
     state->device_config.fx_eq_low = 0.5f;
     state->device_config.fx_eq_mid = 0.5f;
     state->device_config.fx_eq_high = 0.5f;
-    state->device_config.fx_compressor_threshold = 0.4f;
-    state->device_config.fx_compressor_ratio = 0.4f;
-    state->device_config.fx_compressor_attack = 0.05f;
-    state->device_config.fx_compressor_release = 0.5f;
-    state->device_config.fx_compressor_makeup = 0.65f;
+    state->device_config.fx_reverb_room_size = 0.5f;
+    state->device_config.fx_reverb_damping = 0.5f;
+    state->device_config.fx_reverb_mix = 0.3f;
     state->device_config.fx_delay_time = 0.375f;
     state->device_config.fx_delay_feedback = 0.4f;
     state->device_config.fx_delay_mix = 0.3f;
@@ -336,16 +334,12 @@ int regroove_common_load_mappings(RegrooveCommonState *state, const char *ini_pa
                     state->device_config.fx_eq_mid = atof(value);
                 } else if (strcmp(key, "fx_eq_high") == 0) {
                     state->device_config.fx_eq_high = atof(value);
-                } else if (strcmp(key, "fx_compressor_threshold") == 0) {
-                    state->device_config.fx_compressor_threshold = atof(value);
-                } else if (strcmp(key, "fx_compressor_ratio") == 0) {
-                    state->device_config.fx_compressor_ratio = atof(value);
-                } else if (strcmp(key, "fx_compressor_attack") == 0) {
-                    state->device_config.fx_compressor_attack = atof(value);
-                } else if (strcmp(key, "fx_compressor_release") == 0) {
-                    state->device_config.fx_compressor_release = atof(value);
-                } else if (strcmp(key, "fx_compressor_makeup") == 0) {
-                    state->device_config.fx_compressor_makeup = atof(value);
+                } else if (strcmp(key, "fx_reverb_room_size") == 0) {
+                    state->device_config.fx_reverb_room_size = atof(value);
+                } else if (strcmp(key, "fx_reverb_damping") == 0) {
+                    state->device_config.fx_reverb_damping = atof(value);
+                } else if (strcmp(key, "fx_reverb_mix") == 0) {
+                    state->device_config.fx_reverb_mix = atof(value);
                 } else if (strcmp(key, "fx_delay_time") == 0) {
                     state->device_config.fx_delay_time = atof(value);
                 } else if (strcmp(key, "fx_delay_feedback") == 0) {
@@ -762,11 +756,9 @@ int regroove_common_save_device_config(RegrooveCommonState *state, const char *f
         fprintf(f, "fx_eq_low = %.2f\n", state->device_config.fx_eq_low);
         fprintf(f, "fx_eq_mid = %.2f\n", state->device_config.fx_eq_mid);
         fprintf(f, "fx_eq_high = %.2f\n", state->device_config.fx_eq_high);
-        fprintf(f, "fx_compressor_threshold = %.2f\n", state->device_config.fx_compressor_threshold);
-        fprintf(f, "fx_compressor_ratio = %.2f\n", state->device_config.fx_compressor_ratio);
-        fprintf(f, "fx_compressor_attack = %.2f\n", state->device_config.fx_compressor_attack);
-        fprintf(f, "fx_compressor_release = %.2f\n", state->device_config.fx_compressor_release);
-        fprintf(f, "fx_compressor_makeup = %.2f\n", state->device_config.fx_compressor_makeup);
+        fprintf(f, "fx_reverb_room_size = %.2f\n", state->device_config.fx_reverb_room_size);
+        fprintf(f, "fx_reverb_damping = %.2f\n", state->device_config.fx_reverb_damping);
+        fprintf(f, "fx_reverb_mix = %.2f\n", state->device_config.fx_reverb_mix);
         fprintf(f, "fx_delay_time = %.2f\n", state->device_config.fx_delay_time);
         fprintf(f, "fx_delay_feedback = %.2f\n", state->device_config.fx_delay_feedback);
         fprintf(f, "fx_delay_mix = %.2f\n", state->device_config.fx_delay_mix);
@@ -814,11 +806,9 @@ int regroove_common_save_device_config(RegrooveCommonState *state, const char *f
         fprintf(f, "fx_eq_low = %.2f\n", state->device_config.fx_eq_low);
         fprintf(f, "fx_eq_mid = %.2f\n", state->device_config.fx_eq_mid);
         fprintf(f, "fx_eq_high = %.2f\n", state->device_config.fx_eq_high);
-        fprintf(f, "fx_compressor_threshold = %.2f\n", state->device_config.fx_compressor_threshold);
-        fprintf(f, "fx_compressor_ratio = %.2f\n", state->device_config.fx_compressor_ratio);
-        fprintf(f, "fx_compressor_attack = %.2f\n", state->device_config.fx_compressor_attack);
-        fprintf(f, "fx_compressor_release = %.2f\n", state->device_config.fx_compressor_release);
-        fprintf(f, "fx_compressor_makeup = %.2f\n", state->device_config.fx_compressor_makeup);
+        fprintf(f, "fx_reverb_room_size = %.2f\n", state->device_config.fx_reverb_room_size);
+        fprintf(f, "fx_reverb_damping = %.2f\n", state->device_config.fx_reverb_damping);
+        fprintf(f, "fx_reverb_mix = %.2f\n", state->device_config.fx_reverb_mix);
         fprintf(f, "fx_delay_time = %.2f\n", state->device_config.fx_delay_time);
         fprintf(f, "fx_delay_feedback = %.2f\n", state->device_config.fx_delay_feedback);
         fprintf(f, "fx_delay_mix = %.2f\n", state->device_config.fx_delay_mix);
@@ -878,11 +868,9 @@ int regroove_common_save_device_config(RegrooveCommonState *state, const char *f
                 fprintf(f_write, "fx_eq_low = %.2f\n", state->device_config.fx_eq_low);
                 fprintf(f_write, "fx_eq_mid = %.2f\n", state->device_config.fx_eq_mid);
                 fprintf(f_write, "fx_eq_high = %.2f\n", state->device_config.fx_eq_high);
-                fprintf(f_write, "fx_compressor_threshold = %.2f\n", state->device_config.fx_compressor_threshold);
-                fprintf(f_write, "fx_compressor_ratio = %.2f\n", state->device_config.fx_compressor_ratio);
-                fprintf(f_write, "fx_compressor_attack = %.2f\n", state->device_config.fx_compressor_attack);
-                fprintf(f_write, "fx_compressor_release = %.2f\n", state->device_config.fx_compressor_release);
-                fprintf(f_write, "fx_compressor_makeup = %.2f\n", state->device_config.fx_compressor_makeup);
+                fprintf(f_write, "fx_reverb_room_size = %.2f\n", state->device_config.fx_reverb_room_size);
+                fprintf(f_write, "fx_reverb_damping = %.2f\n", state->device_config.fx_reverb_damping);
+                fprintf(f_write, "fx_reverb_mix = %.2f\n", state->device_config.fx_reverb_mix);
                 fprintf(f_write, "fx_delay_time = %.2f\n", state->device_config.fx_delay_time);
                 fprintf(f_write, "fx_delay_feedback = %.2f\n", state->device_config.fx_delay_feedback);
                 fprintf(f_write, "fx_delay_mix = %.2f\n", state->device_config.fx_delay_mix);
@@ -926,11 +914,9 @@ int regroove_common_save_device_config(RegrooveCommonState *state, const char *f
                 fprintf(f_write, "fx_eq_low = %.2f\n", state->device_config.fx_eq_low);
                 fprintf(f_write, "fx_eq_mid = %.2f\n", state->device_config.fx_eq_mid);
                 fprintf(f_write, "fx_eq_high = %.2f\n", state->device_config.fx_eq_high);
-                fprintf(f_write, "fx_compressor_threshold = %.2f\n", state->device_config.fx_compressor_threshold);
-                fprintf(f_write, "fx_compressor_ratio = %.2f\n", state->device_config.fx_compressor_ratio);
-                fprintf(f_write, "fx_compressor_attack = %.2f\n", state->device_config.fx_compressor_attack);
-                fprintf(f_write, "fx_compressor_release = %.2f\n", state->device_config.fx_compressor_release);
-                fprintf(f_write, "fx_compressor_makeup = %.2f\n", state->device_config.fx_compressor_makeup);
+                fprintf(f_write, "fx_reverb_room_size = %.2f\n", state->device_config.fx_reverb_room_size);
+                fprintf(f_write, "fx_reverb_damping = %.2f\n", state->device_config.fx_reverb_damping);
+                fprintf(f_write, "fx_reverb_mix = %.2f\n", state->device_config.fx_reverb_mix);
                 fprintf(f_write, "fx_delay_time = %.2f\n", state->device_config.fx_delay_time);
                 fprintf(f_write, "fx_delay_feedback = %.2f\n", state->device_config.fx_delay_feedback);
                 fprintf(f_write, "fx_delay_mix = %.2f\n", state->device_config.fx_delay_mix);
@@ -1016,11 +1002,9 @@ int regroove_common_save_default_config(const char *filepath) {
     fprintf(f, "fx_eq_low = 0.50\n");
     fprintf(f, "fx_eq_mid = 0.50\n");
     fprintf(f, "fx_eq_high = 0.50\n");
-    fprintf(f, "fx_compressor_threshold = 0.40\n");
-    fprintf(f, "fx_compressor_ratio = 0.40\n");
-    fprintf(f, "fx_compressor_attack = 0.05\n");
-    fprintf(f, "fx_compressor_release = 0.50\n");
-    fprintf(f, "fx_compressor_makeup = 0.65\n");
+    fprintf(f, "fx_reverb_room_size = 0.50\n");
+    fprintf(f, "fx_reverb_damping = 0.50\n");
+    fprintf(f, "fx_reverb_mix = 0.30\n");
     fprintf(f, "fx_delay_time = 0.375\n");
     fprintf(f, "fx_delay_feedback = 0.40\n");
     fprintf(f, "fx_delay_mix = 0.30\n\n");

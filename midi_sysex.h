@@ -74,7 +74,7 @@ typedef enum {
     SYSEX_FX_DISTORTION = 0x00,  // Distortion (drive, mix)
     SYSEX_FX_FILTER     = 0x01,  // Filter (cutoff, resonance)
     SYSEX_FX_EQ         = 0x02,  // EQ (low, mid, high)
-    SYSEX_FX_COMPRESSOR = 0x03,  // Compressor (threshold, ratio, attack, release, makeup)
+    SYSEX_FX_REVERB     = 0x03,  // Reverb (room_size, damping, mix)
     SYSEX_FX_DELAY      = 0x04,  // Delay (time, feedback, mix)
     SYSEX_FX_RESERVED_1 = 0x05,  // Reserved for future effect
     SYSEX_FX_RESERVED_2 = 0x06,  // Reserved for future effect
@@ -348,7 +348,7 @@ size_t sysex_build_fx_effect_get(uint8_t target_device_id,
 // - DISTORTION (0x00): 2 params (drive, mix)
 // - FILTER (0x01): 2 params (cutoff, resonance)
 // - EQ (0x02): 3 params (low, mid, high)
-// - COMPRESSOR (0x03): 5 params (threshold, ratio, attack, release, makeup)
+// - REVERB (0x03): 3 params (room_size, damping, mix)
 // - DELAY (0x04): 3 params (time, feedback, mix)
 size_t sysex_build_fx_effect_set(uint8_t target_device_id,
                                   uint8_t program_id,
@@ -370,13 +370,13 @@ size_t sysex_build_fx_get_all_state(uint8_t target_device_id,
 //   Byte 0: Program ID (0-31)
 //   Byte 1: Version (0x01)
 //   Byte 2: FX routing (0=none, 1=master, 2=playback, 3=input)
-//   Byte 3: Enable flags (bit 0=distortion, 1=filter, 2=EQ, 3=compressor, 4=delay, 5-7=reserved)
+//   Byte 3: Enable flags (bit 0=distortion, 1=filter, 2=EQ, 3=reverb, 4=delay, 5-7=reserved)
 //   Byte 4-5: Distortion (drive, mix)
 //   Byte 6-7: Filter (cutoff, resonance)
 //   Byte 8-10: EQ (low, mid, high)
-//   Byte 11-15: Compressor (threshold, ratio, attack, release, makeup)
-//   Byte 16-18: Delay (time, feedback, mix)
-//   Byte 19-31: Reserved (13 bytes)
+//   Byte 11-13: Reverb (room_size, damping, mix)
+//   Byte 14-16: Delay (time, feedback, mix)
+//   Byte 17-31: Reserved (15 bytes)
 size_t sysex_build_fx_state_response(uint8_t target_device_id,
                                       uint8_t program_id,
                                       uint8_t version,
@@ -385,7 +385,7 @@ size_t sysex_build_fx_state_response(uint8_t target_device_id,
                                       const uint8_t *distortion_params,  // drive, mix
                                       const uint8_t *filter_params,      // cutoff, resonance
                                       const uint8_t *eq_params,          // low, mid, high
-                                      const uint8_t *compressor_params,  // threshold, ratio, attack, release, makeup
+                                      const uint8_t *reverb_params,      // room_size, damping, mix
                                       const uint8_t *delay_params,       // time, feedback, mix
                                       uint8_t *buffer, size_t buffer_size);
 
@@ -401,7 +401,7 @@ int sysex_parse_fx_state_response(const uint8_t *data, size_t data_len,
                                    uint8_t *out_distortion_params,  // 2 bytes
                                    uint8_t *out_filter_params,      // 2 bytes
                                    uint8_t *out_eq_params,          // 3 bytes
-                                   uint8_t *out_compressor_params,  // 5 bytes
+                                   uint8_t *out_reverb_params,      // 3 bytes
                                    uint8_t *out_delay_params);      // 3 bytes
 
 // --- Helper Functions ---
