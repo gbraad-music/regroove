@@ -20,6 +20,7 @@ if(WIN32 AND CMAKE_CROSSCOMPILING)
 endif()
 
 # RFX library directories
+set(RFX_ENGINE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../rfx/engine)
 set(RFX_SYNTH_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../rfx/synth)
 set(RFX_UI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../rfx/ui)
 set(RFX_MIDI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../rfx/midi)
@@ -99,7 +100,7 @@ set(IMGUI_SOURCES
 if(NOT WIN32 AND NOT PLATFORM_ANDROID)
     add_executable(regroove-tui
         main-tui.c
-        regroove_engine.c
+        ${RFX_ENGINE_DIR}/regroove_engine.c
         regroove_common.c
         regroove_metadata.c
         regroove_performance.c
@@ -117,6 +118,7 @@ if(NOT WIN32 AND NOT PLATFORM_ANDROID)
         ${SDL3_INCLUDE_DIRS}
         ${OPENMPT_INCLUDE_DIRS}
         ${RTMIDI_INCLUDE_DIRS}
+        ${RFX_ENGINE_DIR}
         ${RFX_COMMON_DIR}
     )
 
@@ -141,7 +143,7 @@ endif()
 # GUI version (desktop and Android)
 add_executable(regroove-gui
     main-gui.cpp
-    regroove_engine.c
+    ${RFX_ENGINE_DIR}/regroove_engine.c
     regroove_common.c
     regroove_metadata.c
     regroove_performance.c
@@ -164,6 +166,7 @@ target_include_directories(regroove-gui PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${IMGUI_DIR}
     ${IMGUI_DIR}/backends
+    ${RFX_ENGINE_DIR}
     ${RFX_SYNTH_DIR}
     ${RFX_UI_DIR}
     ${RFX_MIDI_DIR}

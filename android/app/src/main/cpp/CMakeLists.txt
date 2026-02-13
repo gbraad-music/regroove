@@ -21,6 +21,7 @@ endif()
 set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../)
 set(SDL3_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../SDL3)
 set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../regroovelizer/imgui)
+set(RFX_ENGINE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../rfx/engine)
 set(RFX_SYNTH_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../rfx/synth)
 set(RFX_UI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../rfx/ui)
 set(RFX_MIDI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../rfx/midi)
@@ -66,6 +67,7 @@ include_directories(
     ${SDL3_DIR}/include
     ${IMGUI_DIR}
     ${IMGUI_DIR}/backends
+    ${RFX_ENGINE_DIR}
     ${RFX_SYNTH_DIR}
     ${RFX_UI_DIR}
     ${RFX_MIDI_DIR}
@@ -108,7 +110,7 @@ add_library(main SHARED
     ${SRC_DIR}/main-gui.cpp
     ${SRC_DIR}/midi_handler_android.cpp
     ${SRC_DIR}/midi_android_compat.cpp
-    ${SRC_DIR}/regroove_engine.c
+    ${RFX_ENGINE_DIR}/regroove_engine.c
     ${SRC_DIR}/regroove_common.c
     ${SRC_DIR}/regroove_metadata.c
     ${SRC_DIR}/regroove_performance.c

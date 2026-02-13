@@ -2,7 +2,7 @@
 #define REGROOVE_COMMON_H
 
 #include <stddef.h>
-#include "regroove_engine.h"
+#include "../rfx/engine/regroove_engine.h"
 #include "input_mappings.h"
 #include "regroove_metadata.h"
 #include "regroove_performance.h"
