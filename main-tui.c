@@ -215,7 +215,7 @@ static int load_module(const char *path, struct RegrooveCallbacks *cbs) {
         regroove_effects_set_distortion_enabled(effects, 0);
         regroove_effects_set_filter_enabled(effects, 0);
         regroove_effects_set_eq_enabled(effects, 0);
-        regroove_effects_set_compressor_enabled(effects, 0);
+        regroove_effects_set_reverb_enabled(effects, 0);
         regroove_effects_set_delay_enabled(effects, 0);
 
         // Reset all parameters to defaults from config
@@ -226,11 +226,9 @@ static int load_module(const char *path, struct RegrooveCallbacks *cbs) {
         regroove_effects_set_eq_low(effects, common_state->device_config.fx_eq_low);
         regroove_effects_set_eq_mid(effects, common_state->device_config.fx_eq_mid);
         regroove_effects_set_eq_high(effects, common_state->device_config.fx_eq_high);
-        regroove_effects_set_compressor_threshold(effects, common_state->device_config.fx_compressor_threshold);
-        regroove_effects_set_compressor_ratio(effects, common_state->device_config.fx_compressor_ratio);
-        regroove_effects_set_compressor_attack(effects, common_state->device_config.fx_compressor_attack);
-        regroove_effects_set_compressor_release(effects, common_state->device_config.fx_compressor_release);
-        regroove_effects_set_compressor_makeup(effects, common_state->device_config.fx_compressor_makeup);
+        regroove_effects_set_reverb_room_size(effects, common_state->device_config.fx_reverb_room_size);
+        regroove_effects_set_reverb_damping(effects, common_state->device_config.fx_reverb_damping);
+        regroove_effects_set_reverb_mix(effects, common_state->device_config.fx_reverb_mix);
         regroove_effects_set_delay_time(effects, common_state->device_config.fx_delay_time);
         regroove_effects_set_delay_feedback(effects, common_state->device_config.fx_delay_feedback);
         regroove_effects_set_delay_mix(effects, common_state->device_config.fx_delay_mix);
@@ -547,14 +545,19 @@ static void execute_action(InputAction action, int parameter, float value, void*
                 regroove_effects_set_eq_high(effects, value / 127.0f);
             }
             break;
-        case ACTION_FX_COMPRESSOR_THRESHOLD:
+        case ACTION_FX_REVERB_ROOM_SIZE:
             if (effects) {
-                regroove_effects_set_compressor_threshold(effects, value / 127.0f);
+                regroove_effects_set_reverb_room_size(effects, value / 127.0f);
             }
             break;
-        case ACTION_FX_COMPRESSOR_RATIO:
+        case ACTION_FX_REVERB_DAMPING:
             if (effects) {
-                regroove_effects_set_compressor_ratio(effects, value / 127.0f);
+                regroove_effects_set_reverb_damping(effects, value / 127.0f);
+            }
+            break;
+        case ACTION_FX_REVERB_MIX:
+            if (effects) {
+                regroove_effects_set_reverb_mix(effects, value / 127.0f);
             }
             break;
         case ACTION_FX_DELAY_TIME:
@@ -593,11 +596,11 @@ static void execute_action(InputAction action, int parameter, float value, void*
                 printf("EQ: %s\n", enabled ? "OFF" : "ON");
             }
             break;
-        case ACTION_FX_COMPRESSOR_TOGGLE:
+        case ACTION_FX_REVERB_TOGGLE:
             if (effects) {
-                int enabled = regroove_effects_get_compressor_enabled(effects);
-                regroove_effects_set_compressor_enabled(effects, !enabled);
-                printf("Compressor: %s\n", enabled ? "OFF" : "ON");
+                int enabled = regroove_effects_get_reverb_enabled(effects);
+                regroove_effects_set_reverb_enabled(effects, !enabled);
+                printf("Reverb: %s\n", enabled ? "OFF" : "ON");
             }
             break;
         case ACTION_FX_DELAY_TOGGLE:

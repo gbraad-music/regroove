@@ -53,8 +53,9 @@ typedef enum {
     ACTION_FX_EQ_LOW,              // EQ low band gain
     ACTION_FX_EQ_MID,              // EQ mid band gain
     ACTION_FX_EQ_HIGH,             // EQ high band gain
-    ACTION_FX_COMPRESSOR_THRESHOLD, // compressor threshold
-    ACTION_FX_COMPRESSOR_RATIO,    // compressor ratio
+    ACTION_FX_REVERB_ROOM_SIZE,    // reverb room size
+    ACTION_FX_REVERB_DAMPING,      // reverb damping
+    ACTION_FX_REVERB_MIX,          // reverb mix
     ACTION_FX_DELAY_TIME,          // delay time
     ACTION_FX_DELAY_FEEDBACK,      // delay feedback
     ACTION_FX_DELAY_MIX,           // delay dry/wet mix
@@ -62,7 +63,7 @@ typedef enum {
     ACTION_FX_DISTORTION_TOGGLE,   // toggle distortion on/off
     ACTION_FX_FILTER_TOGGLE,       // toggle filter on/off
     ACTION_FX_EQ_TOGGLE,           // toggle EQ on/off
-    ACTION_FX_COMPRESSOR_TOGGLE,   // toggle compressor on/off
+    ACTION_FX_REVERB_TOGGLE,       // toggle reverb on/off
     ACTION_FX_DELAY_TOGGLE,        // toggle delay on/off
     // Mixer actions (continuous, use MIDI value 0-127)
     ACTION_MASTER_VOLUME,          // master output volume

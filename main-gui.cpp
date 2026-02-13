@@ -596,7 +596,7 @@ static int load_module(const char *path) {
         regroove_effects_set_distortion_enabled(effects, 0);
         regroove_effects_set_filter_enabled(effects, 0);
         regroove_effects_set_eq_enabled(effects, 0);
-        regroove_effects_set_compressor_enabled(effects, 0);
+        regroove_effects_set_reverb_enabled(effects, 0);
         regroove_effects_set_delay_enabled(effects, 0);
 
         // Reset all parameters to defaults from config
@@ -607,11 +607,9 @@ static int load_module(const char *path) {
         regroove_effects_set_eq_low(effects, common_state->device_config.fx_eq_low);
         regroove_effects_set_eq_mid(effects, common_state->device_config.fx_eq_mid);
         regroove_effects_set_eq_high(effects, common_state->device_config.fx_eq_high);
-        regroove_effects_set_compressor_threshold(effects, common_state->device_config.fx_compressor_threshold);
-        regroove_effects_set_compressor_ratio(effects, common_state->device_config.fx_compressor_ratio);
-        regroove_effects_set_compressor_attack(effects, common_state->device_config.fx_compressor_attack);
-        regroove_effects_set_compressor_release(effects, common_state->device_config.fx_compressor_release);
-        regroove_effects_set_compressor_makeup(effects, common_state->device_config.fx_compressor_makeup);
+        regroove_effects_set_reverb_room_size(effects, common_state->device_config.fx_reverb_room_size);
+        regroove_effects_set_reverb_damping(effects, common_state->device_config.fx_reverb_damping);
+        regroove_effects_set_reverb_mix(effects, common_state->device_config.fx_reverb_mix);
         regroove_effects_set_delay_time(effects, common_state->device_config.fx_delay_time);
         regroove_effects_set_delay_feedback(effects, common_state->device_config.fx_delay_feedback);
         regroove_effects_set_delay_mix(effects, common_state->device_config.fx_delay_mix);
@@ -1230,7 +1228,7 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
 
                 // Build response based on effect ID
                 uint8_t response_buffer[32];
-                uint8_t params[5];  // Max 5 params (compressor)
+                uint8_t params[5];  // Max 5 params (legacy buffer size)
                 size_t param_count = 0;
                 uint8_t enabled = 0;
 
@@ -1254,14 +1252,12 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
                         params[2] = (uint8_t)(regroove_effects_get_eq_high(effects) * 127.0f);
                         param_count = 3;
                         break;
-                    case SYSEX_FX_COMPRESSOR:
-                        enabled = regroove_effects_get_compressor_enabled(effects);
-                        params[0] = (uint8_t)(regroove_effects_get_compressor_threshold(effects) * 127.0f);
-                        params[1] = (uint8_t)(regroove_effects_get_compressor_ratio(effects) * 127.0f);
-                        params[2] = (uint8_t)(regroove_effects_get_compressor_attack(effects) * 127.0f);
-                        params[3] = (uint8_t)(regroove_effects_get_compressor_release(effects) * 127.0f);
-                        params[4] = (uint8_t)(regroove_effects_get_compressor_makeup(effects) * 127.0f);
-                        param_count = 5;
+                    case SYSEX_FX_REVERB:
+                        enabled = regroove_effects_get_reverb_enabled(effects);
+                        params[0] = (uint8_t)(regroove_effects_get_reverb_room_size(effects) * 127.0f);
+                        params[1] = (uint8_t)(regroove_effects_get_reverb_damping(effects) * 127.0f);
+                        params[2] = (uint8_t)(regroove_effects_get_reverb_mix(effects) * 127.0f);
+                        param_count = 3;
                         break;
                     case SYSEX_FX_DELAY:
                         enabled = regroove_effects_get_delay_enabled(effects);
@@ -1337,17 +1333,14 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
                                    params[0] / 127.0f, params[1] / 127.0f, params[2] / 127.0f);
                         }
                         break;
-                    case SYSEX_FX_COMPRESSOR:
-                        if (param_count >= 5) {
-                            regroove_effects_set_compressor_enabled(effects, enabled);
-                            regroove_effects_set_compressor_threshold(effects, params[0] / 127.0f);
-                            regroove_effects_set_compressor_ratio(effects, params[1] / 127.0f);
-                            regroove_effects_set_compressor_attack(effects, params[2] / 127.0f);
-                            regroove_effects_set_compressor_release(effects, params[3] / 127.0f);
-                            regroove_effects_set_compressor_makeup(effects, params[4] / 127.0f);
-                            printf("[SysEx]   Compressor: threshold=%.2f, ratio=%.2f, attack=%.2f, release=%.2f, makeup=%.2f\n",
-                                   params[0] / 127.0f, params[1] / 127.0f, params[2] / 127.0f,
-                                   params[3] / 127.0f, params[4] / 127.0f);
+                    case SYSEX_FX_REVERB:
+                        if (param_count >= 3) {
+                            regroove_effects_set_reverb_enabled(effects, enabled);
+                            regroove_effects_set_reverb_room_size(effects, params[0] / 127.0f);
+                            regroove_effects_set_reverb_damping(effects, params[1] / 127.0f);
+                            regroove_effects_set_reverb_mix(effects, params[2] / 127.0f);
+                            printf("[SysEx]   Reverb: room_size=%.2f, damping=%.2f, mix=%.2f\n",
+                                   params[0] / 127.0f, params[1] / 127.0f, params[2] / 127.0f);
                         }
                         break;
                     case SYSEX_FX_DELAY:
@@ -1389,7 +1382,7 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
                 if (regroove_effects_get_distortion_enabled(effects)) enable_flags |= (1 << 0);
                 if (regroove_effects_get_filter_enabled(effects)) enable_flags |= (1 << 1);
                 if (regroove_effects_get_eq_enabled(effects)) enable_flags |= (1 << 2);
-                if (regroove_effects_get_compressor_enabled(effects)) enable_flags |= (1 << 3);
+                if (regroove_effects_get_reverb_enabled(effects)) enable_flags |= (1 << 3);
                 if (regroove_effects_get_delay_enabled(effects)) enable_flags |= (1 << 4);
 
                 // Get all parameters
@@ -1406,12 +1399,10 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
                     (uint8_t)(regroove_effects_get_eq_mid(effects) * 127.0f),
                     (uint8_t)(regroove_effects_get_eq_high(effects) * 127.0f)
                 };
-                uint8_t compressor_params[5] = {
-                    (uint8_t)(regroove_effects_get_compressor_threshold(effects) * 127.0f),
-                    (uint8_t)(regroove_effects_get_compressor_ratio(effects) * 127.0f),
-                    (uint8_t)(regroove_effects_get_compressor_attack(effects) * 127.0f),
-                    (uint8_t)(regroove_effects_get_compressor_release(effects) * 127.0f),
-                    (uint8_t)(regroove_effects_get_compressor_makeup(effects) * 127.0f)
+                uint8_t reverb_params[3] = {
+                    (uint8_t)(regroove_effects_get_reverb_room_size(effects) * 127.0f),
+                    (uint8_t)(regroove_effects_get_reverb_damping(effects) * 127.0f),
+                    (uint8_t)(regroove_effects_get_reverb_mix(effects) * 127.0f)
                 };
                 uint8_t delay_params[3] = {
                     (uint8_t)(regroove_effects_get_delay_time(effects) * 127.0f),
@@ -1423,7 +1414,7 @@ static void sysex_command_callback(uint8_t device_id, SysExCommand command,
                 uint8_t response_buffer[64];
                 size_t response_len = sysex_build_fx_state_response(
                     device_id, program_id, version, fx_route_byte, enable_flags,
-                    distortion_params, filter_params, eq_params, compressor_params, delay_params,
+                    distortion_params, filter_params, eq_params, reverb_params, delay_params,
                     response_buffer, sizeof(response_buffer)
                 );
 
@@ -2335,14 +2326,19 @@ static void execute_action(InputAction action, int parameter, float value, void*
                 regroove_effects_set_eq_high(effects, value / 127.0f);
             }
             break;
-        case ACTION_FX_COMPRESSOR_THRESHOLD:
+        case ACTION_FX_REVERB_ROOM_SIZE:
             if (effects) {
-                regroove_effects_set_compressor_threshold(effects, value / 127.0f);
+                regroove_effects_set_reverb_room_size(effects, value / 127.0f);
             }
             break;
-        case ACTION_FX_COMPRESSOR_RATIO:
+        case ACTION_FX_REVERB_DAMPING:
             if (effects) {
-                regroove_effects_set_compressor_ratio(effects, value / 127.0f);
+                regroove_effects_set_reverb_damping(effects, value / 127.0f);
+            }
+            break;
+        case ACTION_FX_REVERB_MIX:
+            if (effects) {
+                regroove_effects_set_reverb_mix(effects, value / 127.0f);
             }
             break;
         case ACTION_FX_DELAY_TIME:
@@ -2378,10 +2374,10 @@ static void execute_action(InputAction action, int parameter, float value, void*
                 regroove_effects_set_eq_enabled(effects, !enabled);
             }
             break;
-        case ACTION_FX_COMPRESSOR_TOGGLE:
+        case ACTION_FX_REVERB_TOGGLE:
             if (effects) {
-                int enabled = regroove_effects_get_compressor_enabled(effects);
-                regroove_effects_set_compressor_enabled(effects, !enabled);
+                int enabled = regroove_effects_get_reverb_enabled(effects);
+                regroove_effects_set_reverb_enabled(effects, !enabled);
             }
             break;
         case ACTION_FX_DELAY_TOGGLE:
@@ -5116,8 +5112,8 @@ static void ShowMainUI() {
                         is_effect_enabled = regroove_effects_get_filter_enabled(effects);
                     } else if (pad->action == ACTION_FX_EQ_TOGGLE) {
                         is_effect_enabled = regroove_effects_get_eq_enabled(effects);
-                    } else if (pad->action == ACTION_FX_COMPRESSOR_TOGGLE) {
-                        is_effect_enabled = regroove_effects_get_compressor_enabled(effects);
+                    } else if (pad->action == ACTION_FX_REVERB_TOGGLE) {
+                        is_effect_enabled = regroove_effects_get_reverb_enabled(effects);
                     } else if (pad->action == ACTION_FX_DELAY_TOGGLE) {
                         is_effect_enabled = regroove_effects_get_delay_enabled(effects);
                     }
@@ -5614,8 +5610,8 @@ static void ShowMainUI() {
                         is_effect_enabled = regroove_effects_get_filter_enabled(effects);
                     } else if (pad->action == ACTION_FX_EQ_TOGGLE) {
                         is_effect_enabled = regroove_effects_get_eq_enabled(effects);
-                    } else if (pad->action == ACTION_FX_COMPRESSOR_TOGGLE) {
-                        is_effect_enabled = regroove_effects_get_compressor_enabled(effects);
+                    } else if (pad->action == ACTION_FX_REVERB_TOGGLE) {
+                        is_effect_enabled = regroove_effects_get_reverb_enabled(effects);
                     } else if (pad->action == ACTION_FX_DELAY_TOGGLE) {
                         is_effect_enabled = regroove_effects_get_delay_enabled(effects);
                     }
@@ -9077,65 +9073,93 @@ static void ShowMainUI() {
             // --- COMPRESSOR GROUP ---
             float comp_start_x = origin.x + col_index * (sliderW + fx_spacing) + group_gap_offset;
             ImGui::SetCursorPos(ImVec2(comp_start_x, origin.y + 8.0f));
-            ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "COMPRESSOR");
+            ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "REVERB");
 
-            // Threshold (with enable)
+            // Room Size (with enable)
             {
                 float colX = origin.x + col_index * (sliderW + fx_spacing) + group_gap_offset;
                 ImGui::SetCursorPos(ImVec2(colX, origin.y + 24.0f));
                 ImGui::BeginGroup();
-                ImGui::Text("Threshold");
+                ImGui::Text("Room");
                 ImGui::Dummy(ImVec2(0, 4.0f));
 
-                int comp_en = regroove_effects_get_compressor_enabled(effects);
-                ImVec4 enCol = comp_en ? ImVec4(0.70f, 0.60f, 0.20f, 1.0f) : ImVec4(0.26f, 0.27f, 0.30f, 1.0f);
+                int reverb_en = regroove_effects_get_reverb_enabled(effects);
+                ImVec4 enCol = reverb_en ? ImVec4(0.70f, 0.60f, 0.20f, 1.0f) : ImVec4(0.26f, 0.27f, 0.30f, 1.0f);
                 ImGui::PushStyleColor(ImGuiCol_Button, enCol);
-                if (ImGui::Button("E##comp_en", ImVec2(sliderW, SOLO_SIZE))) {
-                    if (learn_mode_active) start_learn_for_action(ACTION_FX_COMPRESSOR_TOGGLE);
-                    else regroove_effects_set_compressor_enabled(effects, !comp_en);
+                if (ImGui::Button("E##reverb_en", ImVec2(sliderW, SOLO_SIZE))) {
+                    if (learn_mode_active) start_learn_for_action(ACTION_FX_REVERB_TOGGLE);
+                    else regroove_effects_set_reverb_enabled(effects, !reverb_en);
                 }
                 ImGui::PopStyleColor();
                 ImGui::Dummy(ImVec2(0, 6.0f));
 
-                float thresh = regroove_effects_get_compressor_threshold(effects);
-                if (ImGui::VSliderFloat("##fx_comp_thresh", ImVec2(sliderW, sliderH), &thresh, 0.0f, 1.0f, "")) {
+                float room_size = regroove_effects_get_reverb_room_size(effects);
+                if (ImGui::VSliderFloat("##fx_reverb_room", ImVec2(sliderW, sliderH), &room_size, 0.0f, 1.0f, "")) {
                     if (learn_mode_active && ImGui::IsItemActive()) {
-                        start_learn_for_action(ACTION_FX_COMPRESSOR_THRESHOLD);
+                        start_learn_for_action(ACTION_FX_REVERB_ROOM_SIZE);
                     } else {
-                        regroove_effects_set_compressor_threshold(effects, thresh);
+                        regroove_effects_set_reverb_room_size(effects, room_size);
                     }
                 }
                 ImGui::Dummy(ImVec2(0, 8.0f));
-                if (ImGui::Button("R##comp_thresh_reset", ImVec2(sliderW, MUTE_SIZE))) {
-                    regroove_effects_set_compressor_threshold(effects, 0.5f);
+                if (ImGui::Button("R##reverb_room_reset", ImVec2(sliderW, MUTE_SIZE))) {
+                    regroove_effects_set_reverb_room_size(effects, 0.5f);
                 }
                 ImGui::EndGroup();
                 col_index++;
             }
 
-            // Ratio (with reset button)
+            // Damping (with reset button)
             {
                 float colX = origin.x + col_index * (sliderW + fx_spacing) + group_gap_offset;
                 ImGui::SetCursorPos(ImVec2(colX, origin.y + 24.0f));
                 ImGui::BeginGroup();
-                ImGui::Text("Ratio");
+                ImGui::Text("Damp");
                 ImGui::Dummy(ImVec2(0, 4.0f));
 
                 // Spacer to align with faders that have enable buttons
                 ImGui::Dummy(ImVec2(sliderW, SOLO_SIZE));
                 ImGui::Dummy(ImVec2(0, 6.0f));
 
-                float ratio = regroove_effects_get_compressor_ratio(effects);
-                if (ImGui::VSliderFloat("##fx_comp_ratio", ImVec2(sliderW, sliderH), &ratio, 0.0f, 1.0f, "")) {
+                float damping = regroove_effects_get_reverb_damping(effects);
+                if (ImGui::VSliderFloat("##fx_reverb_damp", ImVec2(sliderW, sliderH), &damping, 0.0f, 1.0f, "")) {
                     if (learn_mode_active && ImGui::IsItemActive()) {
-                        start_learn_for_action(ACTION_FX_COMPRESSOR_RATIO);
+                        start_learn_for_action(ACTION_FX_REVERB_DAMPING);
                     } else {
-                        regroove_effects_set_compressor_ratio(effects, ratio);
+                        regroove_effects_set_reverb_damping(effects, damping);
                     }
                 }
                 ImGui::Dummy(ImVec2(0, 8.0f));
-                if (ImGui::Button("R##comp_ratio_reset", ImVec2(sliderW, MUTE_SIZE))) {
-                    regroove_effects_set_compressor_ratio(effects, 0.0f); // Reset to 1:1 (no compression)
+                if (ImGui::Button("R##reverb_damp_reset", ImVec2(sliderW, MUTE_SIZE))) {
+                    regroove_effects_set_reverb_damping(effects, 0.5f);
+                }
+                ImGui::EndGroup();
+                col_index++;
+            }
+
+            // Mix (with reset button)
+            {
+                float colX = origin.x + col_index * (sliderW + fx_spacing) + group_gap_offset;
+                ImGui::SetCursorPos(ImVec2(colX, origin.y + 24.0f));
+                ImGui::BeginGroup();
+                ImGui::Text("Mix");
+                ImGui::Dummy(ImVec2(0, 4.0f));
+
+                // Spacer to align with faders that have enable buttons
+                ImGui::Dummy(ImVec2(sliderW, SOLO_SIZE));
+                ImGui::Dummy(ImVec2(0, 6.0f));
+
+                float mix = regroove_effects_get_reverb_mix(effects);
+                if (ImGui::VSliderFloat("##fx_reverb_mix", ImVec2(sliderW, sliderH), &mix, 0.0f, 1.0f, "")) {
+                    if (learn_mode_active && ImGui::IsItemActive()) {
+                        start_learn_for_action(ACTION_FX_REVERB_MIX);
+                    } else {
+                        regroove_effects_set_reverb_mix(effects, mix);
+                    }
+                }
+                ImGui::Dummy(ImVec2(0, 8.0f));
+                if (ImGui::Button("R##reverb_mix_reset", ImVec2(sliderW, MUTE_SIZE))) {
+                    regroove_effects_set_reverb_mix(effects, 0.3f);
                 }
                 ImGui::EndGroup();
                 col_index++;
@@ -9853,37 +9877,25 @@ static void ShowMainUI() {
 
             ImGui::Dummy(ImVec2(0, 12.0f));
 
-            // Compressor parameters
-            ImGui::TextColored(COLOR_SECTION_HEADING, "COMPRESSOR");
+            // Reverb parameters
+            ImGui::TextColored(COLOR_SECTION_HEADING, "REVERB");
             ImGui::Separator();
 
-            ImGui::Text("Compressor Threshold:");
+            ImGui::Text("Reverb Room Size:");
             ImGui::SameLine(200.0f);
-            if (ImGui::SliderFloat("##comp_thresh", &common_state->device_config.fx_compressor_threshold, 0.0f, 1.0f, "%.2f")) {
+            if (ImGui::SliderFloat("##reverb_room", &common_state->device_config.fx_reverb_room_size, 0.0f, 1.0f, "%.2f")) {
                 config_changed = true;
             }
 
-            ImGui::Text("Compressor Ratio:");
+            ImGui::Text("Reverb Damping:");
             ImGui::SameLine(200.0f);
-            if (ImGui::SliderFloat("##comp_ratio", &common_state->device_config.fx_compressor_ratio, 0.0f, 1.0f, "%.2f")) {
+            if (ImGui::SliderFloat("##reverb_damp", &common_state->device_config.fx_reverb_damping, 0.0f, 1.0f, "%.2f")) {
                 config_changed = true;
             }
 
-            ImGui::Text("Compressor Attack:");
+            ImGui::Text("Reverb Mix:");
             ImGui::SameLine(200.0f);
-            if (ImGui::SliderFloat("##comp_attack", &common_state->device_config.fx_compressor_attack, 0.0f, 1.0f, "%.2f")) {
-                config_changed = true;
-            }
-
-            ImGui::Text("Compressor Release:");
-            ImGui::SameLine(200.0f);
-            if (ImGui::SliderFloat("##comp_release", &common_state->device_config.fx_compressor_release, 0.0f, 1.0f, "%.2f")) {
-                config_changed = true;
-            }
-
-            ImGui::Text("Compressor Makeup:");
-            ImGui::SameLine(200.0f);
-            if (ImGui::SliderFloat("##comp_makeup", &common_state->device_config.fx_compressor_makeup, 0.0f, 1.0f, "%.2f")) {
+            if (ImGui::SliderFloat("##reverb_mix", &common_state->device_config.fx_reverb_mix, 0.0f, 1.0f, "%.2f")) {
                 config_changed = true;
             }
 
